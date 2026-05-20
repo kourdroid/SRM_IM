@@ -1,5 +1,7 @@
+import AdminTabBar from '@/components/AdminTabBar';
 import { supabase } from '@/lib/supabase';
-import { Redirect, Stack } from 'expo-router';
+import { Tabs } from 'expo-router';
+import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
@@ -18,7 +20,6 @@ export default function AdminLayout() {
         return;
       }
 
-      // Structural Integrity: Strictly query the role from the Profiles DB.
       const { data, error } = await supabase
         .from('user_profiles')
         .select('role')
@@ -43,16 +44,19 @@ export default function AdminLayout() {
     );
   }
 
-  // Zero Trust: Force eject anyone who isn't explicitly an admin
   if (!isAdmin) {
     return <Redirect href="/" />;
   }
 
   return (
-    <Stack>
-      <Stack.Screen name="dashboard" options={{ title: 'Admin Dashboard' }} />
-      <Stack.Screen name="incidents" options={{ title: 'Manage Incidents' }} />
-      <Stack.Screen name="users" options={{ title: 'User Management' }} />
-    </Stack>
+    <Tabs
+      tabBar={(props) => <AdminTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <Tabs.Screen name="dashboard" options={{ title: 'Dashboard' }} />
+      <Tabs.Screen name="incidents" options={{ title: 'Incidents' }} />
+      <Tabs.Screen name="users" options={{ title: 'Users' }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+    </Tabs>
   );
 }

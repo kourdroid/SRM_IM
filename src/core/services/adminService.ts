@@ -43,5 +43,55 @@ export const AdminService = {
             label: point.label,
             value: Number(point.value || 0)
         }));
+    },
+
+    /**
+     * Fetches resolution time statistics (average and max days) for the last 30 days.
+     * Falls back to a client-side computation if the RPC is not available.
+     */
+    async getResolutionStats(): Promise<{ avgDays: number; maxDays: number }> {
+        try {
+            const { data, error } = await supabase
+                .rpc('get_resolution_time_stats');
+
+            if (!error && data && data.length > 0) {
+                return {
+                    avgDays: Number(data[0].avg_days || 0),
+                    maxDays: Number(data[0].max_days || 0),
+                };
+            }
+        } catch {
+            // RPC not available, fall through to client-side fallback
+        }
+
+        // Fallback: compute from raw incidents table
+        try {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+            const { data: incidents, error: fallbackError } = await supabase
+                .from('incidents')
+                .select('created_at, closed_at')
+                .eq('status', 'closed')
+                .not('closed_at', 'is', null)
+                .gte('created_at', thirtyDaysAgo.toISOString());
+
+            if (fallbackError || !incidents || incidents.length === 0) {
+                return { avgDays: 0, maxDays: 0 };
+            }
+
+            const durations = incidents.map(inc => {
+                const created = new Date(inc.created_at).getTime();
+                const closed = new Date(inc.closed_at).getTime();
+                return (closed - created) / (1000 * 60 * 60 * 24); // days
+            });
+
+            const avgDays = durations.reduce((a, b) => a + b, 0) / durations.length;
+            const maxDays = Math.max(...durations);
+
+            return { avgDays, maxDays };
+        } catch {
+            return { avgDays: 0, maxDays: 0 };
+        }
     }
 };

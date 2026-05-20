@@ -210,8 +210,12 @@ export default function Home() {
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
-              <View style={{ alignItems: 'center', marginTop: 40 }}>
-                <Text style={{ color: '#6B7280', fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 }}>Aucun incident trouvé</Text>
+              <View style={{ alignItems: 'center', marginTop: 60, paddingHorizontal: 40 }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                  <Ionicons name="folder-open-outline" size={32} color="#9CA3AF" />
+                </View>
+                <Text style={{ color: '#111827', fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>AUCUN INCIDENT</Text>
+                <Text style={{ color: '#6B7280', fontSize: 14, textAlign: 'center', lineHeight: 20 }}>Vous n&apos;avez pas encore signalé d&apos;incident</Text>
               </View>
             }
           />
@@ -318,7 +322,7 @@ export default function Home() {
                     >
                       <Ionicons name="checkmark-circle" size={24} color="#111827" style={{ marginRight: 8 }} />
                       <Text style={{ color: '#111827', fontWeight: '900', fontSize: 16, letterSpacing: 1, textTransform: 'uppercase' }}>
-                        CLÔTURER L'INCIDENT
+                        CLÔTURER L&apos;INCIDENT
                       </Text>
                     </TouchableOpacity>
                   )}

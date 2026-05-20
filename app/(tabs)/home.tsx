@@ -122,15 +122,20 @@ export default function Home() {
           flexShrink: 0,
         }} />
         <View style={{ flex: 1 }}>
-          <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, marginBottom: 4, textTransform: 'uppercase' }}>
-            {item.type} • {item.village}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+            <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginRight: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.textPrimary, textTransform: 'uppercase' }}>{item.type}</Text>
+            </View>
+            <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+              {item.village}
+            </Text>
+          </View>
           <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase' }}>
             {item.synced === 0 ? 'EN ATTENTE • ' : ''}
             {formatIncidentDate(item.date)}
           </Text>
           {item.incident_type ? (
-            <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4, fontWeight: '500' }} numberOfLines={1}>
+            <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4, fontWeight: '600' }} numberOfLines={1}>
               {item.incident_type}
             </Text>
           ) : null}
@@ -309,7 +314,7 @@ export default function Home() {
                     </Text>
                   </View>
                   <View style={{ backgroundColor: '#F9FAFB', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                    <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: '600', fontFamily: 'monospace' }}>{formatIncidentDate(selectedIncident.date)}</Text>
+                    <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: '600' }}>{formatIncidentDate(selectedIncident.date)}</Text>
                   </View>
                 </View>
 
@@ -353,7 +358,7 @@ export default function Home() {
                     >
                       <Ionicons name="checkmark-circle" size={24} color="#111827" style={{ marginRight: 8 }} />
                       <Text style={{ color: '#111827', fontWeight: '900', fontSize: 16, letterSpacing: 1, textTransform: 'uppercase' }}>
-                        CLÔTURER L'INCIDENT
+                        CLÔTURER L&apos;INCIDENT
                       </Text>
                     </TouchableOpacity>
                   )}

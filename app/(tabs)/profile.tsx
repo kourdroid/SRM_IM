@@ -52,35 +52,13 @@ export default function Profile() {
       </View>
 
       {/* Menu Options */}
-      <View style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: 8,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-      }}>
-        {isAdmin && (
-          <TouchableOpacity
-            style={{
-              padding: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: '#F3F4F6',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: '#FFFFFF',
-            }}
-            onPress={() => router.push('/(admin)/dashboard')}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ width: 32, height: 32, backgroundColor: '#F3F4F6', borderRadius: 4, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="grid" size={16} color="#111827" />
-              </View>
-              <Text style={{ color: '#111827', fontWeight: 'bold', fontSize: 16 }}>Admin Dashboard</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-          </TouchableOpacity>
-        )}
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 8,
+          overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: '#E5E7EB',
+        }}>
 
         <TouchableOpacity
           style={{

@@ -21,5 +21,9 @@ export default function Index() {
     return <Redirect href="/(auth)/login" />;
   }
 
+  if (isAdmin) {
+    return <Redirect href="/(admin)/dashboard" />;
+  }
+
   return <Redirect href="/(tabs)/home" />;
 }

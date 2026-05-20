@@ -1,11 +1,13 @@
 import CustomBarChart from '@/components/CustomBarChart';
 import { type ChartDataPoint, type DashboardStats } from '@/src/core/entities/admin';
 import { AdminService } from '@/src/core/services/adminService';
+import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -45,6 +47,15 @@ export default function AdminDashboard() {
     fetchStats();
   }, []);
 
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      router.replace('/(auth)/login');
+    }
+  };
+
   const fetchStats = async () => {
     try {
       const [newStats, chartPoints] = await Promise.all([
@@ -82,9 +93,24 @@ export default function AdminDashboard() {
             <Text style={styles.headerGreeting}>Admin Panel</Text>
             <Text style={styles.headerTitle}>Dashboard</Text>
           </View>
-          <View style={styles.headerBadge}>
-            <Ionicons name="pulse" size={20} color={COLORS.primaryDark} />
-            <Text style={styles.headerBadgeText}>Live</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={styles.headerBadge}>
+              <Ionicons name="pulse" size={20} color={COLORS.primaryDark} />
+              <Text style={styles.headerBadgeText}>Live</Text>
+            </View>
+            <TouchableOpacity
+              onPress={handleSignOut}
+              style={{
+                width: 40,
+                height: 40,
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                borderRadius: 20,
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}
+            >
+              <Ionicons name="log-out-outline" size={20} color={COLORS.white} />
+            </TouchableOpacity>
           </View>
         </View>
       </View>

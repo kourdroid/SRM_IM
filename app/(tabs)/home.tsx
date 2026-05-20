@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, FlatList, Modal, StatusBar, StyleSheet, Text,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSync } from '../../hooks/useSync';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 
 // Define the incident type mapping to SQLite schema
 interface Incident {
@@ -27,20 +28,8 @@ interface Incident {
 
 // Inline styles to avoid NativeWind race condition
 const styles = StyleSheet.create({
-  statusBadgeOpen: {
-    backgroundColor: 'rgba(249, 115, 22, 0.2)', // orange-500/20
-  },
-  statusBadgeClosed: {
-    backgroundColor: 'rgba(218, 242, 44, 0.2)', // #DAF22C/20
-  },
-  statusBadgeGreen: {
-    backgroundColor: 'rgba(34, 197, 94, 0.2)', // green-500/20
-  },
   modalOverlay: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', // bg-black/50
-  },
-  grayOverlay: {
-    backgroundColor: 'rgba(31, 41, 55, 0.5)', // gray-800/50
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
 });
 
@@ -106,15 +95,16 @@ export default function Home() {
     return (
       <TouchableOpacity
         style={{
-          marginHorizontal: 20,
-          marginBottom: 16,
-          backgroundColor: '#FFFFFF',
-          borderRadius: 8,
+          marginHorizontal: SPACING.xl,
+          marginBottom: SPACING.lg,
+          backgroundColor: COLORS.surface,
+          borderRadius: RADIUS.md,
           borderWidth: 1,
-          borderColor: '#D1D5DB',
-          borderLeftWidth: 4,
-          borderLeftColor: isOpen ? '#F97316' : '#DAF22C',
-          padding: 24,
+          borderColor: COLORS.border,
+          padding: SPACING.xl,
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: SPACING.md,
         }}
         activeOpacity={0.8}
         onPress={() => {
@@ -122,54 +112,67 @@ export default function Home() {
           setIsModalVisible(true);
         }}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: '#111827', fontSize: 18, fontWeight: '900', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }}>
-              {item.type} • {item.village}
+        {/* Status dot instead of border-left stripe */}
+        <View style={{
+          width: 8,
+          height: 8,
+          borderRadius: RADIUS.full,
+          backgroundColor: isOpen ? COLORS.signalOrange : COLORS.accent,
+          marginTop: 6,
+          flexShrink: 0,
+        }} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, marginBottom: 4, textTransform: 'uppercase' }}>
+            {item.type} • {item.village}
+          </Text>
+          <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+            {item.synced === 0 ? 'EN ATTENTE • ' : ''}
+            {formatIncidentDate(item.date)}
+          </Text>
+          {item.incident_type ? (
+            <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4, fontWeight: '500' }} numberOfLines={1}>
+              {item.incident_type}
             </Text>
-            <Text style={{ color: '#6B7280', fontSize: 13, fontWeight: '600', letterSpacing: 1 }}>
-              {item.synced === 0 ? 'PENDING • ' : ''}
-              {formatIncidentDate(item.date)}
-            </Text>
-          </View>
-          <View style={{
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            borderRadius: 4,
-            backgroundColor: isOpen ? 'rgba(249, 115, 22, 0.1)' : 'rgba(218, 242, 44, 0.2)',
-            borderWidth: 1,
-            borderColor: isOpen ? 'rgba(249, 115, 22, 0.3)' : 'rgba(218, 242, 44, 0.5)',
-          }}>
-            <Text style={{ fontSize: 11, fontWeight: '900', color: isOpen ? '#EA580C' : '#65A30D', letterSpacing: 0.5 }}>
-              {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
-            </Text>
-          </View>
+          ) : null}
+        </View>
+        <View style={{
+          paddingHorizontal: SPACING.sm,
+          paddingVertical: SPACING.xs,
+          borderRadius: RADIUS.sm,
+          backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint,
+          borderWidth: 1,
+          borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+          flexShrink: 0,
+        }}>
+          <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
+          </Text>
         </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
 
       {/* Header */}
       <View style={{
-        paddingHorizontal: 20,
-        paddingTop: 20,
-        paddingBottom: 24,
-        backgroundColor: '#FFFFFF',
+        paddingHorizontal: SPACING.xl,
+        paddingTop: SPACING.xl,
+        paddingBottom: SPACING.xxl,
+        backgroundColor: COLORS.surface,
         borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
+        borderBottomColor: COLORS.border,
         zIndex: 10,
       }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
-            <Text style={{ color: '#111827', fontSize: 24, fontWeight: '900', letterSpacing: 0.5 }}>
-              HELLO, {user?.email ? user.email.split('@')[0].toUpperCase() : 'MEHDI'}
+            <Text style={{ color: COLORS.textPrimary, fontSize: 22, fontWeight: '900', letterSpacing: 0.5 }}>
+              {user?.email ? user.email.split('@')[0].toUpperCase() : 'AGENT'}
             </Text>
-            <Text style={{ color: '#6B7280', fontSize: 14, marginTop: 4, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>
-              ZONE: ZEMAMRA
+            <Text style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 4, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>
+              INCIDENTS TERRAIN
             </Text>
           </View>
           {/* Manual Sync Button */}
@@ -179,25 +182,25 @@ export default function Home() {
               fetchIncidents();
             }}
             style={{
-              backgroundColor: '#F3F4F6',
-              padding: 12,
-              borderRadius: 4,
+              backgroundColor: COLORS.background,
+              padding: SPACING.md,
+              borderRadius: RADIUS.sm,
               borderWidth: 1,
-              borderColor: isSyncing ? '#DAF22C' : '#E5E7EB',
+              borderColor: isSyncing ? COLORS.accent : COLORS.border,
             }}
             disabled={isSyncing}
           >
             {isSyncing ? (
-              <ActivityIndicator size={24} color="#DAF22C" />
+              <ActivityIndicator size={24} color={COLORS.accent} />
             ) : (
-              <Ionicons name="sync-outline" size={24} color="#111827" />
+              <Ionicons name="sync-outline" size={24} color={COLORS.textPrimary} />
             )}
           </TouchableOpacity>
         </View>
       </View>
 
       {/* List Container */}
-      <View style={{ flex: 1, backgroundColor: '#F3F4F6', paddingTop: 24 }}>
+        <View style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: SPACING.xxl }}>
         {isLoading ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <ActivityIndicator size="large" color="#DAF22C" />
@@ -210,8 +213,40 @@ export default function Home() {
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
-              <View style={{ alignItems: 'center', marginTop: 40 }}>
-                <Text style={{ color: '#6B7280', fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 }}>Aucun incident trouvé</Text>
+              <View style={{
+                flex: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: SPACING.xl,
+                paddingTop: 60,
+              }}>
+                <View style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: RADIUS.full,
+                  backgroundColor: COLORS.signalGreenTint,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: SPACING.xl,
+                }}>
+                  <Ionicons name="checkmark-done-circle-outline" size={36} color={COLORS.signalGreen} />
+                </View>
+                <Text style={{
+                  ...TYPOGRAPHY.title,
+                  color: COLORS.textPrimary,
+                  textAlign: 'center',
+                  marginBottom: SPACING.sm,
+                }}>
+                  Aucun incident signalé
+                </Text>
+                <Text style={{
+                  ...TYPOGRAPHY.body,
+                  color: COLORS.textSecondary,
+                  textAlign: 'center',
+                  lineHeight: 20,
+                }}>
+                  Appuyez sur le bouton + pour signaler un nouvel incident.
+                </Text>
               </View>
             }
           />

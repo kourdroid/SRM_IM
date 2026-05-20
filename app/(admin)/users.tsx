@@ -228,8 +228,21 @@ export default function UserManagement() {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={48} color={COLORS.textMuted} />
-            <Text style={styles.emptyText}>Aucun utilisateur enregistré</Text>
+            <View style={{
+              width: 72,
+              height: 72,
+              borderRadius: 36,
+              backgroundColor: '#EFF6FF',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16,
+            }}>
+              <Ionicons name="people-outline" size={36} color={COLORS.statBlue} />
+            </View>
+            <Text style={[styles.emptyText, { marginBottom: 8 }]}>Aucun utilisateur enregistré</Text>
+            <Text style={{ color: COLORS.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
+              Appuyez sur + pour créer{'\n'}un compte technicien.
+            </Text>
           </View>
         }
       />

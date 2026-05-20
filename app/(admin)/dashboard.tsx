@@ -117,8 +117,8 @@ export default function AdminDashboard() {
               <Text style={styles.headerTitle}>Tableau de bord</Text>
             </View>
             <View style={styles.headerBadge}>
-              <Ionicons name="pulse" size={16} color={COLORS.primaryDark} />
-              <Text style={styles.headerBadgeText}>Live</Text>
+              <Ionicons name="time-outline" size={14} color={COLORS.white} />
+              <Text style={styles.headerBadgeText}>Aujourd'hui</Text>
             </View>
           </View>
         </View>
@@ -126,18 +126,18 @@ export default function AdminDashboard() {
         {/* ─── Stats Cards ─────────────────────────────────────────── */}
         <View style={styles.statsGrid}>
           {/* Total Incidents */}
-          <View style={[styles.statCard, { borderLeftColor: COLORS.statBlue }]}>
+          <View style={styles.statCard}>
             <View style={[styles.statIconContainer, { backgroundColor: '#EFF6FF' }]}>
               <Ionicons name="layers-outline" size={18} color={COLORS.statBlue} />
             </View>
-            <Text style={styles.statLabel}>Total Incidents</Text>
+            <Text style={styles.statLabel}>Total</Text>
             <Text style={[styles.statValue, { color: COLORS.textPrimary }]}>
               {stats.total}
             </Text>
           </View>
 
           {/* Open Issues */}
-          <View style={[styles.statCard, { borderLeftColor: COLORS.statRed }]}>
+          <View style={styles.statCard}>
             <View style={[styles.statIconContainer, { backgroundColor: '#FEF2F2' }]}>
               <Ionicons name="alert-circle-outline" size={18} color={COLORS.statRed} />
             </View>
@@ -148,7 +148,7 @@ export default function AdminDashboard() {
           </View>
 
           {/* Resolved */}
-          <View style={[styles.statCard, { borderLeftColor: COLORS.statGreen }]}>
+          <View style={styles.statCard}>
             <View style={[styles.statIconContainer, { backgroundColor: '#F0FDF4' }]}>
               <Ionicons name="checkmark-circle-outline" size={18} color={COLORS.statGreen} />
             </View>
@@ -159,7 +159,7 @@ export default function AdminDashboard() {
           </View>
 
           {/* Reclamations */}
-          <View style={[styles.statCard, { borderLeftColor: COLORS.statOrange }]}>
+          <View style={styles.statCard}>
             <View style={[styles.statIconContainer, { backgroundColor: '#FFFBEB' }]}>
               <Ionicons name="warning-outline" size={18} color={COLORS.statOrange} />
             </View>
@@ -484,9 +484,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
-    borderLeftWidth: 4,
-    borderColor: COLORS.cardBorder,
     borderWidth: 1,
+    borderColor: COLORS.cardBorder,
     ...Platform.select({
       ios: {
         shadowColor: '#000',

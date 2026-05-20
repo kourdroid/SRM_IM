@@ -1,8 +1,18 @@
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Login() {
@@ -11,14 +21,18 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   async function signInWithEmail() {
+    if (!email.trim()) {
+      Alert.alert('Champs requis', 'Veuillez saisir votre adresse e-mail.');
+      return;
+    }
+    if (!password) {
+      Alert.alert('Champs requis', 'Veuillez saisir votre mot de passe.');
+      return;
+    }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Erreur de connexion', error.message);
     } else {
       router.replace('/(tabs)/home');
     }
@@ -26,35 +40,36 @@ export default function Login() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white p-6 justify-center">
-      <View className="items-center mb-12">
-        <Text className="text-4xl font-bold text-brand-dark uppercase tracking-widest mb-4">
-          ONEE
-        </Text>
-        <Text className="text-xl font-medium text-gray-500">Welcome Back</Text>
+    <SafeAreaView style={styles.container}>
+      {/* ── Brand Mark ── */}
+      <View style={styles.brandSection}>
+        <Text style={styles.brandName}>ONEE</Text>
+        <Text style={styles.brandSub}>SRM — Gestion des Incidents</Text>
+        <Text style={styles.welcomeText}>Bon retour</Text>
       </View>
 
-      <View className="space-y-4">
-
-        <View className="flex-row items-center border border-gray-200 rounded-xl px-4 h-14 bg-white">
-          <Ionicons name="mail-outline" size={20} color="#9CA3AF" />
+      {/* ── Form ── */}
+      <View style={styles.form}>
+        <View style={styles.inputRow}>
+          <Ionicons name="mail-outline" size={20} color={COLORS.textMuted} />
           <TextInput
-            className="flex-1 ml-3 text-brand-dark text-base"
-            placeholder="Email"
-            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+            placeholder="Adresse e-mail"
+            placeholderTextColor={COLORS.textMuted}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            autoComplete="email"
           />
         </View>
 
-        <View className="flex-row items-center border border-gray-200 rounded-xl px-4 h-14 bg-white">
-          <Ionicons name="lock-closed-outline" size={20} color="#9CA3AF" />
+        <View style={styles.inputRow}>
+          <Ionicons name="lock-closed-outline" size={20} color={COLORS.textMuted} />
           <TextInput
-            className="flex-1 ml-3 text-brand-dark text-base"
-            placeholder="Password"
-            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+            placeholder="Mot de passe"
+            placeholderTextColor={COLORS.textMuted}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -62,30 +77,119 @@ export default function Login() {
         </View>
 
         <TouchableOpacity
-          className="bg-brand-primary rounded-xl h-14 items-center justify-center mt-6 shadow-sm"
+          style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
           onPress={signInWithEmail}
           disabled={loading}
+          activeOpacity={0.85}
         >
           {loading ? (
-            <ActivityIndicator color="black" />
+            <ActivityIndicator color={COLORS.textPrimary} />
           ) : (
-            <Text className="text-brand-dark font-bold text-lg">Login</Text>
+            <Text style={styles.primaryBtnText}>Connexion</Text>
           )}
         </TouchableOpacity>
 
-        <View className="flex-row justify-center mt-6">
-          <Text className="text-gray-500">Don't have an account? </Text>
+        <View style={styles.footerRow}>
+          <Text style={styles.footerText}>Pas encore de compte ? </Text>
           <Link href="/(auth)/signup" asChild>
             <TouchableOpacity>
-              <Text className="text-brand-primary font-bold">Sign Up</Text>
+              <Text style={styles.footerLink}>Créer un compte</Text>
             </TouchableOpacity>
           </Link>
-        </View>
-
-        <View className="flex-row justify-center mt-2">
-          {/* Optional: Add Magic Link if needed, styling it minimally */}
         </View>
       </View>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: SPACING.xl,
+    justifyContent: 'center',
+  },
+  brandSection: {
+    alignItems: 'center',
+    marginBottom: SPACING.section,
+  },
+  brandName: {
+    ...TYPOGRAPHY.display,
+    color: COLORS.textPrimary,
+    letterSpacing: 8,
+    textTransform: 'uppercase',
+    marginBottom: SPACING.sm,
+  },
+  brandSub: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textMuted,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: SPACING.lg,
+  },
+  welcomeText: {
+    ...TYPOGRAPHY.heading,
+    color: COLORS.textSecondary,
+  },
+  form: {
+    gap: SPACING.md,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.lg,
+    height: 56,
+    backgroundColor: COLORS.surface,
+    gap: SPACING.md,
+  },
+  input: {
+    flex: 1,
+    color: COLORS.textPrimary,
+    fontSize: 15,
+    fontWeight: '400',
+  },
+  primaryBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.sm,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SPACING.sm,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  primaryBtnDisabled: {
+    opacity: 0.7,
+  },
+  primaryBtnText: {
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: SPACING.lg,
+  },
+  footerText: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
+  },
+  footerLink: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
+  },
+});

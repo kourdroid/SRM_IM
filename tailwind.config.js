@@ -8,7 +8,7 @@ module.exports = {
       colors: {
         brand: {
           primary: '#DAF22C', // Electric Lime
-          dark: '#191820',    // Almost Black
+          dark: '#111827',    // Control Dark — matches all COLORS constants
           background: '#FAFAFA', // Off-White
           secondary: '#FAFAFA', // keeping for compatibility
         },

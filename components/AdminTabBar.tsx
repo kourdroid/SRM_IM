@@ -70,16 +70,16 @@ export default function AdminTabBar({
         let iconMeta: keyof typeof Ionicons.glyphMap = "help";
 
         if (index === 0) {
-          label = "Home";
+          label = "Accueil";
           iconMeta = isFocused ? "home" : "home-outline";
         } else if (index === 1) {
           label = "Incidents";
           iconMeta = isFocused ? "flash" : "flash-outline";
         } else if (index === 2) {
-          label = "Users";
+          label = "Utilisateurs";
           iconMeta = isFocused ? "people" : "people-outline";
         } else if (index === 3) {
-          label = "Settings";
+          label = "Param\u00e8tres";
           iconMeta = isFocused ? "settings" : "settings-outline";
         }
 

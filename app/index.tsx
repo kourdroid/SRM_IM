@@ -7,7 +7,7 @@ import { ActivityIndicator, View } from 'react-native';
  * Redirects to login if unauthenticated, home if authenticated.
  */
 export default function Index() {
-  const { session, loading } = useAuth();
+  const { session, loading, isAdmin } = useAuth();
 
   if (loading) {
     return (

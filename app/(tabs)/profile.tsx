@@ -18,51 +18,112 @@ export default function Profile() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-brand-background p-4">
-      <View className="items-center mt-10 mb-8">
-        <View className="w-24 h-24 bg-brand-primary rounded-full items-center justify-center mb-4 shadow-sm">
-          <Text className="text-4xl font-bold text-brand-dark">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6', padding: 20 }}>
+      {/* Profile Header */}
+      <View style={{ alignItems: 'center', marginTop: 40, marginBottom: 40 }}>
+        <View style={{
+          width: 100,
+          height: 100,
+          backgroundColor: '#DAF22C',
+          borderRadius: 50,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 20,
+          borderWidth: 4,
+          borderColor: '#FFFFFF'
+        }}>
+          <Text style={{ fontSize: 40, fontWeight: '900', color: '#111827' }}>
             {user?.email?.charAt(0).toUpperCase()}
           </Text>
         </View>
-        <Text className="text-xl font-bold text-brand-dark">{user?.email}</Text>
-        <View className="bg-brand-dark px-4 py-1.5 rounded-full mt-2">
-          <Text className="text-brand-primary text-xs font-bold uppercase tracking-wider">
+        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#111827', marginBottom: 8 }}>{user?.email}</Text>
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderRadius: 4,
+          borderWidth: 1,
+          borderColor: '#E5E7EB',
+        }}>
+          <Text style={{ color: '#111827', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.5 }}>
             {isAdmin ? 'Administrator' : 'Field Agent'}
           </Text>
         </View>
       </View>
 
-      <View className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+      {/* Menu Options */}
+      <View style={{
+        backgroundColor: '#FFFFFF',
+        borderRadius: 8,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+      }}>
         {isAdmin && (
           <TouchableOpacity
-            className="p-4 border-b border-gray-100 flex-row items-center justify-between bg-white"
+            style={{
+              padding: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#F3F4F6',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: '#FFFFFF',
+            }}
             onPress={() => router.push('/(admin)/dashboard')}
           >
-            <Text className="text-brand-dark font-medium">Admin Dashboard</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ width: 32, height: 32, backgroundColor: '#F3F4F6', borderRadius: 4, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="grid" size={16} color="#111827" />
+              </View>
+              <Text style={{ color: '#111827', fontWeight: 'bold', fontSize: 16 }}>Admin Dashboard</Text>
+            </View>
             <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
           </TouchableOpacity>
         )}
 
         <TouchableOpacity
-          className="p-4 border-b border-gray-100 flex-row items-center justify-between bg-white"
+          style={{
+            padding: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: '#F3F4F6',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: '#FFFFFF',
+          }}
         >
-          <Text className="text-brand-dark font-medium">Settings</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ width: 32, height: 32, backgroundColor: '#F3F4F6', borderRadius: 4, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="settings" size={16} color="#111827" />
+            </View>
+            <Text style={{ color: '#111827', fontWeight: 'bold', fontSize: 16 }}>Settings</Text>
+          </View>
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </TouchableOpacity>
 
         <TouchableOpacity
-          className="p-4 flex-row items-center justify-between bg-white"
+          style={{
+            padding: 20,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: '#FFFFFF',
+          }}
           onPress={handleSignOut}
         >
-          <Text className="text-red-600 font-medium">Sign Out</Text>
-          <Ionicons name="log-out-outline" size={20} color="#DC2626" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ width: 32, height: 32, backgroundColor: '#FEF2F2', borderRadius: 4, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="log-out-outline" size={18} color="#EF4444" />
+            </View>
+            <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>Sign Out</Text>
+          </View>
         </TouchableOpacity>
       </View>
 
-      <View className="mt-auto mb-4 items-center">
-        <Text className="text-gray-400 text-sm">Version 1.0.1</Text>
-        <Text className="text-gray-400 text-xs mt-1">ONEE Incident Management System</Text>
+      <View style={{ marginTop: 'auto', marginBottom: 16, alignItems: 'center' }}>
+        <Text style={{ color: '#9CA3AF', fontSize: 14, fontWeight: 'bold' }}>Version 1.0.1</Text>
+        <Text style={{ color: '#9CA3AF', fontSize: 12, marginTop: 4, letterSpacing: 1, textTransform: 'uppercase' }}>ONEE Incident Management System</Text>
       </View>
     </SafeAreaView>
   );

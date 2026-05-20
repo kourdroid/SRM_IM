@@ -124,16 +124,10 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
     }
 
     async upsertFromServer(incidents: IncidentFromServer[]): Promise<void> {
-        // Filter out incidents with null commune_id (cannot store due to NOT NULL constraint)
-        const validIncidents = incidents.filter((inc) => {
-            if (!inc.commune_id) {
-                console.warn(`Sync: Skipping server incident ${inc.id} - null commune_id`);
-                return false;
-            }
-            return true;
-        });
+        for (const inc of incidents) {
+            const safeCommuneId = inc.commune_id || '00000000-0000-0000-0000-000000000000';
+            const safeType = (inc.type === 'BT' || inc.type === 'MT') ? inc.type : 'BT';
 
-        for (const inc of validIncidents) {
             await this.db.runAsync(
                 `INSERT INTO incidents (
           remote_id, type, date, village, status, incident_type, commune_id,
@@ -145,21 +139,21 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
           updated_at = excluded.updated_at`,
                 [
                     inc.id,
-                    inc.type,
-                    inc.date,
-                    inc.village,
-                    inc.status,
+                    safeType,
+                    inc.date || new Date().toISOString(),
+                    inc.village || 'Unknown',
+                    inc.status || 'open',
                     inc.incident_type || 'General',
-                    inc.commune_id,
+                    safeCommuneId,
                     inc.equipment_used || '',
                     inc.description || null,
                     inc.reclamation ? 1 : 0,
                     inc.reclamation_name || null,
-                    inc.created_by,
+                    inc.created_by || 'system',
                     inc.latitude ?? null,
                     inc.longitude ?? null,
-                    inc.created_at,
-                    inc.updated_at || inc.created_at,
+                    inc.created_at || new Date().toISOString(),
+                    inc.updated_at || inc.created_at || new Date().toISOString(),
                 ]
             );
         }

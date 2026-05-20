@@ -1,42 +1,60 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import React from "react";
-import { Platform, Pressable, View } from "react-native";
+import * as Haptics from "expo-haptics";
+import React, { useEffect } from "react";
+import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function CustomTabBar({
   state,
   descriptors,
   navigation,
 }: BottomTabBarProps) {
+  const insets = useSafeAreaInsets();
+
+  // Subtle layout animation on tab change
+  useEffect(() => {
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(
+        150, // Shorter duration for subtlety
+        LayoutAnimation.Types.easeOut,
+        LayoutAnimation.Properties.opacity
+      )
+    );
+  }, [state.index]);
+
   return (
     <View
       style={{
-        position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 30 : 20,
-        left: 40,
-        right: 40,
-        height: 70,
-        backgroundColor: '#191820',
-        borderRadius: 35,
         flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        paddingHorizontal: 12,
+        paddingTop: 12,
+        paddingBottom: insets.bottom + 12,
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.5,
-        shadowRadius: 15,
-        elevation: 20,
+        justifyContent: 'center',
+        gap: 12,
       }}
     >
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
         const isFocused = state.index === index;
+        const isAddButton = index === 1;
 
-        // Skip hidden routes (Expo Router uses href: null)
+        // Skip hidden routes
         if ((options as any).href === null) return null;
 
         const onPress = () => {
+          // Haptic feedback - Light tap
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
           const event = navigation.emit({
             type: "tabPress",
             target: route.key,
@@ -48,57 +66,54 @@ export default function CustomTabBar({
           }
         };
 
-        // Icons
-        let iconName: keyof typeof Ionicons.glyphMap = "home";
-        if (index === 0) iconName = isFocused ? "home" : "home-outline";
-        if (index === 1) iconName = "add";
-        if (index === 2) iconName = isFocused ? "person" : "person-outline";
+        // Config
+        let label = "";
+        let iconMeta: keyof typeof Ionicons.glyphMap = "help";
 
-        // Center Button (Report)
-        if (index === 1) {
-          return (
-            <Pressable
-              key={route.key}
-              onPress={onPress}
-              style={{ top: -20 }}
-            >
-              <View
-                style={{
-                  width: 70,
-                  height: 70,
-                  borderRadius: 35,
-                  backgroundColor: '#DAF22C',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  borderWidth: 6,
-                  borderColor: '#f9fafb',
-                  shadowColor: '#DAF22C',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.6,
-                  shadowRadius: 10,
-                  elevation: 10,
-                }}
-              >
-                <Ionicons name="add" size={36} color="#191820" />
-              </View>
-            </Pressable>
-          );
+        if (index === 0) {
+          label = "Home";
+          iconMeta = isFocused ? "home" : "home-outline";
+        } else if (index === 1) {
+          label = "Add";
+          iconMeta = "add";
+        } else if (index === 2) {
+          label = "Profile";
+          iconMeta = isFocused ? "person" : "person-outline";
         }
 
-        // Side Buttons
+        const showLabel = isFocused && !isAddButton;
+
         return (
           <Pressable
             key={route.key}
             onPress={onPress}
-            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', height: '100%' }}
+            style={{
+              flex: showLabel ? 2 : 1,
+              height: 50,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: isFocused ? '#DAF22C' : '#F3F4F6',
+              borderRadius: 8,
+            }}
           >
             <Ionicons
-              name={iconName}
-              size={28}
-              color={isFocused ? "#DAF22C" : "#6B7280"}
+              name={iconMeta}
+              size={24}
+              color={isFocused ? "#111827" : "#9CA3AF"}
             />
-            {isFocused && (
-              <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#DAF22C', marginTop: 4 }} />
+            {showLabel && (
+              <Text
+                numberOfLines={1}
+                style={{
+                  marginLeft: 8,
+                  fontSize: 14,
+                  fontWeight: '700',
+                  color: '#111827',
+                }}
+              >
+                {label}
+              </Text>
             )}
           </Pressable>
         );

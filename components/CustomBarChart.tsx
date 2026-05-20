@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { BarChart } from 'react-native-gifted-charts';
 
 type Props = {
@@ -8,9 +8,9 @@ type Props = {
 
 export default function CustomBarChart({ data, title }: Props) {
   return (
-    <View className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4">
-      <Text className="text-lg font-bold text-gray-900 mb-4">{title}</Text>
-      <View className="items-center">
+    <View style={styles.card}>
+      <Text style={styles.title}>{title}</Text>
+      <View style={styles.chartContainer}>
         <BarChart
           data={data}
           barWidth={22}
@@ -26,3 +26,28 @@ export default function CustomBarChart({ data, title }: Props) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginBottom: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 16,
+  },
+  chartContainer: {
+    alignItems: 'center',
+  },
+});

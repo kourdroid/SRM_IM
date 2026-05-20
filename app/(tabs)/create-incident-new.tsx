@@ -1,3 +1,4 @@
+import VoiceRecorderOverlay from "@/components/VoiceRecorderOverlay";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
@@ -18,12 +19,11 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { useSharedValue } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSync } from '../../hooks/useSync';
-
-// Voice processing webhook URL (Note: React Native requires EXPO_PUBLIC_ prefix)
-const VOICE_WEBHOOK_URL = process.env.EXPO_PUBLIC_WEBHOOK_URL || "https://n8n.srv1078911.hstgr.cloud/webhook/2681ae8b-4c85-4522-bf61-dd51b00eb520";
+import { processVoiceRecording } from '../../lib/voice-processing';
 
 // Defines
 interface Commune {
@@ -52,6 +52,7 @@ export default function CreateIncidentScreen() {
   // Voice State
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const [pulseAnim] = useState(new Animated.Value(1));
   const [voiceMode, setVoiceMode] = useState(true);
 
@@ -95,7 +96,33 @@ export default function CreateIncidentScreen() {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status === 'granted') {
         await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-        const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+
+        // Enable metering in options
+        const options = {
+          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+          isMeteringEnabled: true,
+          android: {
+            ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+            isMeteringEnabled: true
+          },
+          ios: {
+            ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
+            isMeteringEnabled: true
+          }
+        };
+
+        const { recording } = await Audio.Recording.createAsync(options);
+
+        // Hook up status updates for metering and duration
+        recording.setOnRecordingStatusUpdate((status) => {
+          if (status.isRecording) {
+            setRecordingDuration(status.durationMillis);
+            if (status.metering !== undefined) {
+              metering.value = status.metering;
+            }
+          }
+        });
+
         setRecording(recording);
         setIsRecording(true);
       } else {
@@ -122,112 +149,67 @@ export default function CreateIncidentScreen() {
         return;
       }
 
-      // Upload audio to webhook
-      const formData = new FormData();
-      formData.append('audio', {
-        uri: uri,
-        type: 'audio/m4a',
-        name: `recording_${Date.now()}.m4a`,
-      } as any);
-      formData.append('user_id', user?.id || 'unknown');
-      formData.append('timestamp', new Date().toISOString());
+      // Process audio using Supabase Edge Function
+      const data = await processVoiceRecording(uri, user?.id || 'unknown');
 
-      const response = await fetch(VOICE_WEBHOOK_URL, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
+      // Debug: Log what we received
+      console.log('=== Voice AI Response ===');
+      console.log('Full data:', JSON.stringify(data, null, 2));
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      // Pre-fill form with extracted data
+      if (data.type && (data.type === 'BT' || data.type === 'MT')) {
+        console.log('Setting type:', data.type);
+        setType(data.type);
+      }
+      if (data.village) {
+        console.log('Setting village:', data.village);
+        setVillage(data.village);
+      }
+      if (data.commune_id) {
+        console.log('Setting commune:', data.commune_id);
+        setCommune(data.commune_id);
+      }
+      if (data.equipment_used && data.equipment_used.trim() !== '') {
+        console.log('Setting equipment:', data.equipment_used);
+        setEquipment(data.equipment_used);
+      }
+      if (data.incident_type) {
+        console.log('Incident type from AI:', data.incident_type);
+        // Use incident_type as equipment if empty
+        if (!data.equipment_used || data.equipment_used.trim() === '') {
+          setEquipment(data.incident_type);
+          console.log('Using incident_type as equipment:', data.incident_type);
+        }
+      }
+      if (data.reclamation === true || data.reclamation === false) {
+        console.log('Setting reclamation:', data.reclamation);
+        setIsReclamation(data.reclamation);
+      }
+      if (data.reclamation_name) {
+        console.log('Setting reclamation_name:', data.reclamation_name);
+        setReclamationName(data.reclamation_name);
+      }
+      if (data.reclamation_by) {
+        console.log('Setting reclamation_by:', data.reclamation_by);
+        setReclamationBy(data.reclamation_by);
+      }
+      if (data.date) {
+        try {
+          const parsedDate = new Date(data.date);
+          console.log('Setting date:', parsedDate);
+          setIncidentDate(parsedDate);
+        } catch (e) {
+          console.log('Could not parse date:', data.date);
+        }
       }
 
-      const result = await response.json();
+      console.log('=== Form Fill Complete ===');
 
-      // Handle n8n response format: [{ output: {...} }] or { success, data }
-      let data = null;
-      if (Array.isArray(result) && result.length > 0 && result[0].output) {
-        // n8n format: [{ output: {...} }]
-        data = result[0].output;
-      } else if (result.success && result.data) {
-        // Standard format: { success, data }
-        data = result.data;
-      } else if (result.output) {
-        // Direct format: { output: {...} }
-        data = result.output;
-      }
-
-      if (data) {
-        // Debug: Log what we received
-        console.log('=== Voice AI Response ===');
-        console.log('Full data:', JSON.stringify(data, null, 2));
-
-        // Pre-fill form with extracted data
-        if (data.type && (data.type === 'BT' || data.type === 'MT')) {
-          console.log('Setting type:', data.type);
-          setType(data.type);
-        }
-        if (data.village) {
-          console.log('Setting village:', data.village);
-          setVillage(data.village);
-        }
-        if (data.commune_id) {
-          console.log('Setting commune:', data.commune_id);
-          setCommune(data.commune_id);
-        }
-        if (data.equipment_used && data.equipment_used.trim() !== '') {
-          console.log('Setting equipment:', data.equipment_used);
-          setEquipment(data.equipment_used);
-        }
-        if (data.incident_type) {
-          console.log('Incident type from AI:', data.incident_type);
-          // Could use incident_type to help with equipment if empty
-          if (!data.equipment_used || data.equipment_used.trim() === '') {
-            setEquipment(data.incident_type);
-            console.log('Using incident_type as equipment:', data.incident_type);
-          }
-        }
-        if (data.reclamation === true || data.reclamation === false) {
-          console.log('Setting reclamation:', data.reclamation);
-          setIsReclamation(data.reclamation);
-        }
-        if (data.is_reclamation === true || data.is_reclamation === false) {
-          console.log('Setting is_reclamation:', data.is_reclamation);
-          setIsReclamation(data.is_reclamation);
-        }
-        if (data.reclamation_name) {
-          console.log('Setting reclamation_name:', data.reclamation_name);
-          setReclamationName(data.reclamation_name);
-        }
-        if (data.reclamation_by) {
-          console.log('Setting reclamation_by:', data.reclamation_by);
-          setReclamationBy(data.reclamation_by);
-        }
-        if (data.date) {
-          try {
-            const parsedDate = new Date(data.date);
-            console.log('Setting date:', parsedDate);
-            setIncidentDate(parsedDate);
-          } catch (e) {
-            console.log('Could not parse date:', data.date);
-          }
-        }
-
-        console.log('=== Form Fill Complete ===');
-
-        Alert.alert(
-          "Traitement Terminé",
-          data.description || "Les informations ont été extraites. Veuillez vérifier et compléter si nécessaire."
-        );
-        setVoiceMode(false);
-      } else {
-        Alert.alert(
-          "Erreur de Traitement",
-          result.error || "Impossible d'extraire les informations de l'audio."
-        );
-      }
+      Alert.alert(
+        "Traitement Terminé",
+        data.description || "Les informations ont été extraites. Veuillez vérifier et compléter si nécessaire."
+      );
+      setVoiceMode(false);
     } catch (error) {
       console.error("Error processing audio:", error);
       Alert.alert(
@@ -343,119 +325,111 @@ export default function CreateIncidentScreen() {
     }
   };
 
+  // --- Metering Shared Value ---
+  const metering = useSharedValue(-160);
+
+  // --- Helpers ---
+  const formatDuration = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const handleCancelRecording = async () => {
+    console.log("Cancelling recording...");
+    if (recording) {
+      try {
+        await recording.stopAndUnloadAsync();
+      } catch (e) { console.error(e); }
+    }
+    setRecording(null);
+    setIsRecording(false);
+    setIsProcessingAudio(false);
+    setVoiceMode(false);
+  };
+
   const renderVoiceMode = () => (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#191820' }}>
-      <View style={{ marginBottom: 40, alignItems: 'center' }}>
-        <Text style={{ color: 'white', fontSize: 28, fontWeight: 'bold', marginBottom: 8 }}>
-          {isProcessingAudio ? 'Traitement en cours...' : 'Signaler un Incident'}
-        </Text>
-        <Text style={{ color: '#9CA3AF', fontSize: 18 }}>
-          {isProcessingAudio ? 'Analyse de votre enregistrement' : isRecording ? 'Enregistrement...' : 'Appuyez pour parler'}
-        </Text>
-      </View>
-
-      {isProcessingAudio ? (
-        <View style={{
-          width: 160,
-          height: 160,
-          borderRadius: 80,
-          backgroundColor: 'rgba(218, 242, 44, 0.2)',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}>
-          <ActivityIndicator size={60} color="#DAF22C" />
-        </View>
-      ) : (
-        <TouchableOpacity
-          onPress={isRecording ? stopRecording : startRecording}
-          activeOpacity={0.8}
-          disabled={isProcessingAudio}
-        >
-          <Animated.View
-            style={{
-              transform: [{ scale: pulseAnim }],
-              width: 160,
-              height: 160,
-              borderRadius: 80,
-              backgroundColor: '#DAF22C',
-              justifyContent: 'center',
-              alignItems: 'center',
-              shadowColor: '#DAF22C',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3,
-              shadowRadius: 8,
-              elevation: 8,
-            }}
-          >
-            <Ionicons name={isRecording ? "stop" : "mic"} size={60} color="#191820" />
-          </Animated.View>
-        </TouchableOpacity>
-      )}
-
-      {isRecording && !isProcessingAudio && (
-        <View style={{ marginTop: 32, flexDirection: 'row', gap: 4, height: 40, alignItems: 'center' }}>
-          <View style={{ width: 8, height: 16, backgroundColor: '#DAF22C', borderRadius: 4 }} />
-          <View style={{ width: 8, height: 32, backgroundColor: '#DAF22C', borderRadius: 4 }} />
-          <View style={{ width: 8, height: 16, backgroundColor: '#DAF22C', borderRadius: 4 }} />
-        </View>
-      )}
-
-      <TouchableOpacity
-        style={{
-          marginTop: 80,
-          backgroundColor: isProcessingAudio ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
-          paddingHorizontal: 32,
-          paddingVertical: 16,
-          borderRadius: 50
-        }}
-        onPress={() => setVoiceMode(false)}
-        disabled={isProcessingAudio}
-      >
-        <Text style={{ color: isProcessingAudio ? '#666' : 'white', fontWeight: 'bold', fontSize: 18 }}>
-          Saisie Manuelle
-        </Text>
-      </TouchableOpacity>
-    </View>
+    <VoiceRecorderOverlay
+      isVisible={voiceMode}
+      isRecording={isRecording}
+      isProcessing={isProcessingAudio}
+      metering={metering}
+      onStartRecording={startRecording}
+      onStopRecording={stopRecording}
+      onCancel={handleCancelRecording}
+      durationFormatted={formatDuration(recordingDuration)}
+    />
   );
 
   const renderForm = () => (
-    <ScrollView className="flex-1 px-4 pt-4">
+    <ScrollView style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
       {/* Step 1 */}
       {currentStep === 1 && (
         <View>
-          <View className="flex-row gap-x-2 mb-6">
+          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
             {["BT", "MT"].map((t) => (
               <TouchableOpacity
                 key={t}
-                className={`flex-1 py-4 rounded-xl border-2 ${type === t ? "bg-[#DAF22C] border-[#DAF22C]" : "bg-[#191820] border-gray-700"}`}
+                style={{
+                  flex: 1,
+                  paddingVertical: 18,
+                  borderRadius: 8,
+                  borderWidth: 2,
+                  backgroundColor: type === t ? '#DAF22C' : '#FFFFFF',
+                  borderColor: type === t ? '#DAF22C' : '#D1D5DB',
+                }}
                 onPress={() => setType(t as "BT" | "MT")}
               >
-                <Text className={`text-center font-bold text-xl ${type === t ? "text-[#191820]" : "text-white"}`}>{t}</Text>
+                <Text style={{
+                  textAlign: 'center',
+                  fontWeight: '900',
+                  fontSize: 22,
+                  color: '#111827',
+                  letterSpacing: 1,
+                }}>{t}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          <View className="mb-5">
-            <Text className="text-gray-500 mb-2 font-bold uppercase text-xs">Date</Text>
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Date & Time</Text>
             <TouchableOpacity
-              className="bg-[#191820] rounded-xl p-4 border border-gray-700 flex-row justify-between items-center"
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 8,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: '#D1D5DB',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
               onPress={() => setShowDatePicker(true)}
             >
-              <Text className="text-white text-lg font-medium">{formatDate(incidentDate)}</Text>
-              <Ionicons name="calendar" size={24} color="#DAF22C" />
+              <Text style={{ color: '#111827', fontSize: 18, fontWeight: '600', fontFamily: 'monospace' }}>{formatDate(incidentDate)}</Text>
+              <View style={{ backgroundColor: '#DAF22C', padding: 6, borderRadius: 6 }}>
+                <Ionicons name="calendar" size={20} color="#111827" />
+              </View>
             </TouchableOpacity>
           </View>
 
-          <View className="mb-5">
-            <Text className="text-gray-500 mb-2 font-bold uppercase text-xs">Commune</Text>
-            <View className="bg-[#191820] rounded-xl border border-gray-700 overflow-hidden">
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Commune</Text>
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#D1D5DB',
+              overflow: 'hidden',
+            }}>
               <Picker
                 selectedValue={commune}
                 onValueChange={setCommune}
-                style={{ color: 'white' }}
+                style={{ color: '#111827', height: 56 }}
                 dropdownIconColor="#DAF22C"
               >
-                <Picker.Item label="Sélectionner une commune" value="" color="#999" />
+                <Picker.Item label="SÉLECTIONNER UNE COMMUNE" value="" color="#9CA3AF" style={{ fontSize: 14 }} />
                 {communes.map((c) => (
                   <Picker.Item key={c.id} label={c.name} value={c.remote_id} color="black" />
                 ))}
@@ -463,14 +437,24 @@ export default function CreateIncidentScreen() {
             </View>
           </View>
 
-          <View className="mb-5">
-            <Text className="text-gray-500 mb-2 font-bold uppercase text-xs">Village</Text>
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Village</Text>
             <TextInput
-              className="bg-[#191820] rounded-xl p-4 text-white text-lg border border-gray-700"
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 8,
+                padding: 16,
+                paddingHorizontal: 16,
+                color: '#111827',
+                fontSize: 18,
+                fontWeight: '500',
+                borderWidth: 1,
+                borderColor: '#D1D5DB',
+              }}
               value={village}
               onChangeText={setVillage}
-              placeholder="Nom du village"
-              placeholderTextColor="#666"
+              placeholder="NOM DU VILLAGE"
+              placeholderTextColor="#52525B"
             />
           </View>
         </View>
@@ -479,79 +463,154 @@ export default function CreateIncidentScreen() {
       {/* Step 2 */}
       {currentStep === 2 && (
         <View>
-          <View className="mb-5">
-            <Text className="text-gray-500 mb-2 font-bold uppercase text-xs">Matériel Utilisé</Text>
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Matériel Utilisé</Text>
             <TextInput
-              className="bg-[#191820] rounded-xl p-4 text-white text-lg border border-gray-700"
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 8,
+                padding: 16,
+                paddingHorizontal: 16,
+                color: '#111827',
+                fontSize: 18,
+                fontWeight: '500',
+                borderWidth: 1,
+                borderColor: '#D1D5DB',
+              }}
               value={equipment}
               onChangeText={setEquipment}
-              placeholder="Câble, Isolateur..."
-              placeholderTextColor="#666"
+              placeholder="CÂBLE, ISOLATEUR..."
+              placeholderTextColor="#9CA3AF"
             />
           </View>
 
-          <View className="mb-5">
-            <Text className="text-gray-500 mb-2 font-bold uppercase text-xs">Photo</Text>
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Preuve Visuelle</Text>
             {selectedImage ? (
-              <View className="relative">
-                <Image source={{ uri: selectedImage }} className="w-full h-48 rounded-xl bg-gray-800" resizeMode="cover" />
+              <View style={{ position: 'relative' }}>
+                <Image source={{ uri: selectedImage }} style={{ width: '100%', height: 220, borderRadius: 8, backgroundColor: '#E5E7EB', borderWidth: 1, borderColor: '#D1D5DB' }} resizeMode="cover" />
                 <TouchableOpacity
-                  className="absolute top-2 right-2 bg-black/50 p-2 rounded-full"
+                  style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'white', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB' }}
                   onPress={() => setSelectedImage(null)}
                 >
-                  <Ionicons name="close" size={20} color="white" />
+                  <Ionicons name="close" size={20} color="#111827" />
                 </TouchableOpacity>
               </View>
             ) : (
-              <View className="flex-row gap-x-3">
+              <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity
-                  className="flex-1 bg-[#191820] border-2 border-dashed border-gray-700 rounded-xl p-6 items-center justify-center"
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#FFFFFF',
+                    borderWidth: 2,
+                    borderStyle: 'dashed',
+                    borderColor: '#D1D5DB',
+                    borderRadius: 8,
+                    padding: 24,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                   onPress={takePhoto}
                 >
                   <Ionicons name="camera" size={32} color="#DAF22C" />
-                  <Text className="text-white mt-2 font-medium">Caméra</Text>
+                  <Text style={{ color: '#111827', marginTop: 12, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>Caméra</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  className="flex-1 bg-[#191820] border-2 border-dashed border-gray-700 rounded-xl p-6 items-center justify-center"
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#FFFFFF',
+                    borderWidth: 2,
+                    borderStyle: 'dashed',
+                    borderColor: '#D1D5DB',
+                    borderRadius: 8,
+                    padding: 24,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                   onPress={pickImage}
                 >
                   <Ionicons name="images" size={32} color="#DAF22C" />
-                  <Text className="text-white mt-2 font-medium">Galerie</Text>
+                  <Text style={{ color: '#111827', marginTop: 12, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>Galerie</Text>
                 </TouchableOpacity>
               </View>
             )}
           </View>
 
-          <View className="mb-5">
-            <View className="flex-row justify-between items-center bg-[#191820] p-4 rounded-xl border border-gray-700">
-              <Text className="text-white text-lg font-medium">Réclamation ?</Text>
+          <View style={{ marginBottom: 24 }}>
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: '#FFFFFF',
+              padding: 20,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#D1D5DB',
+            }}>
+              <Text style={{ color: '#111827', fontSize: 18, fontWeight: '600' }}>RÉCLAMATION</Text>
               <TouchableOpacity onPress={() => setIsReclamation(!isReclamation)}>
-                <View className={`w-14 h-8 rounded-full justify-center px-1 ${isReclamation ? 'bg-[#DAF22C]' : 'bg-gray-600'}`}>
-                  <View className={`w-6 h-6 rounded-full bg-white ${isReclamation ? 'self-end' : 'self-start'}`} />
+                <View style={{
+                  width: 60,
+                  height: 34,
+                  borderRadius: 4,
+                  justifyContent: 'center',
+                  paddingHorizontal: 4,
+                  backgroundColor: isReclamation ? '#DAF22C' : '#E5E7EB',
+                }}>
+                  <View style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 2,
+                    backgroundColor: isReclamation ? '#111827' : '#9CA3AF',
+                    alignSelf: isReclamation ? 'flex-end' : 'flex-start',
+                  }} />
                 </View>
               </TouchableOpacity>
             </View>
           </View>
 
           {isReclamation && (
-            <View className="bg-[#191820] p-4 rounded-xl border border-gray-700 mb-5">
-              <Text className="text-gray-500 mb-2 font-bold uppercase text-xs">Détails Réclamation</Text>
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              padding: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#D1D5DB',
+              marginBottom: 24,
+            }}>
+              <Text style={{ color: '#6B7280', marginBottom: 12, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Détails Réclamation</Text>
               <TextInput
-                className="bg-black/20 rounded-lg p-3 text-white mb-3 border border-gray-600"
+                style={{
+                  backgroundColor: '#F9FAFB',
+                  borderRadius: 6,
+                  padding: 14,
+                  color: '#111827',
+                  marginBottom: 16,
+                  borderWidth: 1,
+                  borderColor: '#E5E7EB',
+                }}
                 value={reclamationName}
                 onChangeText={setReclamationName}
-                placeholder="Nom du réclamant"
-                placeholderTextColor="#666"
+                placeholder="NOM DU RÉCLAMANT"
+                placeholderTextColor="#9CA3AF"
               />
-              <Picker
-                selectedValue={reclamationBy}
-                onValueChange={setReclamationBy}
-                style={{ color: 'white' }}
-                dropdownIconColor="#DAF22C"
-              >
-                <Picker.Item label="Administration" value="Administration" color="black" />
-                <Picker.Item label="Client" value="Client" color="black" />
-              </Picker>
+              <View style={{
+                backgroundColor: '#F9FAFB',
+                borderRadius: 6,
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                overflow: 'hidden',
+              }}>
+                <Picker
+                  selectedValue={reclamationBy}
+                  onValueChange={setReclamationBy}
+                  style={{ color: '#111827', height: 50 }}
+                  dropdownIconColor="#DAF22C"
+                >
+                  <Picker.Item label="ADMINISTRATION" value="Administration" color="black" />
+                  <Picker.Item label="CLIENT" value="Client" color="black" />
+                </Picker>
+              </View>
             </View>
           )}
         </View>
@@ -559,19 +618,36 @@ export default function CreateIncidentScreen() {
 
       {/* Step 3: Verification */}
       {currentStep === 3 && (
-        <View className="bg-[#191820] p-6 rounded-xl border border-gray-700">
-          <Text className="text-[#DAF22C] text-xl font-bold mb-6">Vérification</Text>
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          padding: 24,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: '#D1D5DB',
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 12 }}>
+            <View style={{ width: 4, height: 24, backgroundColor: '#DAF22C' }} />
+            <Text style={{ color: '#111827', fontSize: 20, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' }}>Vérification</Text>
+          </View>
+
           {[
-            { l: 'Type', v: type },
-            { l: 'Date', v: formatDate(incidentDate) },
-            { l: 'Village', v: village },
-            { l: 'Commune', v: communes.find(c => c.remote_id === commune)?.name || commune },
-            { l: 'Équipement', v: equipment },
-            { l: 'Photo', v: selectedImage ? 'Oui' : 'Non' }
+            { l: 'TYPE', v: type },
+            { l: 'DATE', v: formatDate(incidentDate) },
+            { l: 'VILLAGE', v: village },
+            { l: 'COMMUNE', v: communes.find(c => c.remote_id === commune)?.name || commune },
+            { l: 'MATÉRIEL', v: equipment },
+            { l: 'PHOTO', v: selectedImage ? 'PRÉSENTE' : 'ABSENTE' }
           ].map((item, i) => (
-            <View key={i} className="flex-row justify-between mb-4 border-b border-gray-800 pb-2">
-              <Text className="text-gray-400">{item.l}</Text>
-              <Text className="text-white font-bold">{item.v}</Text>
+            <View key={i} style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              marginBottom: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: '#F3F4F6',
+              paddingBottom: 12,
+            }}>
+              <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{item.l}</Text>
+              <Text style={{ color: '#111827', fontWeight: 'bold', fontSize: 16, fontFamily: 'monospace' }}>{item.v}</Text>
             </View>
           ))}
         </View>
@@ -588,51 +664,64 @@ export default function CreateIncidentScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
       {/* Header */}
       <View style={{
-        backgroundColor: '#191820',
-        paddingHorizontal: 16,
-        paddingTop: 16,
+        backgroundColor: '#FFFFFF',
+        paddingHorizontal: 20,
+        paddingTop: 20,
         paddingBottom: 24,
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
-        marginBottom: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.4,
-        shadowRadius: 12,
-        elevation: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        marginBottom: 24,
       }}>
-        <View className="flex-row justify-between items-center">
-          <TouchableOpacity onPress={() => {
-            if (currentStep > 1) setCurrentStep(currentStep - 1);
-            else setVoiceMode(true);
-          }}>
-            <Ionicons name="arrow-back" size={24} color="white" />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <TouchableOpacity
+            onPress={() => {
+              if (currentStep > 1) setCurrentStep(currentStep - 1);
+              else setVoiceMode(true);
+            }}
+            style={{ padding: 8, marginLeft: -8 }}
+          >
+            <Ionicons name="arrow-back" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text className="text-white text-xl font-bold">
-            {currentStep === 3 ? "Confirmation" : `Étape ${currentStep}/3`}
-          </Text>
-          <View className="w-6" />
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 12, fontWeight: '900', letterSpacing: 2, textTransform: 'uppercase', color: '#6B7280' }}>
+              NOUVEL INCIDENT
+            </Text>
+            <Text style={{ color: '#111827', fontSize: 16, fontWeight: 'bold', letterSpacing: 0.5 }}>
+              {currentStep === 3 ? "CONFIRMATION" : `ÉTAPE 0${currentStep} / 03`}
+            </Text>
+          </View>
+        </View>
+        {/* Progress Bar */}
+        <View style={{ flexDirection: 'row', gap: 4, marginTop: 16 }}>
+          {[1, 2, 3].map((step) => (
+            <View
+              key={step}
+              style={{
+                flex: 1,
+                height: 4,
+                backgroundColor: step <= currentStep ? '#DAF22C' : '#E5E7EB',
+                borderRadius: 2
+              }}
+            />
+          ))}
         </View>
       </View>
 
       {renderForm()}
 
       {/* Footer Navigation */}
-      <View style={{ padding: 16, paddingBottom: 100, backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#F3F4F6' }}>
+      <View style={{ padding: 20, paddingBottom: 40, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
         <TouchableOpacity
           style={{
             backgroundColor: '#DAF22C',
-            paddingVertical: 16,
-            borderRadius: 12,
+            paddingVertical: 18,
+            borderRadius: 4,
             alignItems: 'center',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.25,
-            shadowRadius: 6,
-            elevation: 6,
+            borderWidth: 1,
+            borderColor: '#DAF22C'
           }}
           onPress={() => {
             if (currentStep < 3) setCurrentStep(currentStep + 1);
@@ -641,10 +730,10 @@ export default function CreateIncidentScreen() {
           disabled={isSubmitting}
         >
           {isSubmitting ? (
-            <ActivityIndicator color="#191820" />
+            <ActivityIndicator color="#111827" />
           ) : (
-            <Text className="text-[#191820] font-bold text-lg">
-              {currentStep === 3 ? "ENREGISTRER" : "SUIVANT"}
+            <Text style={{ color: '#111827', fontWeight: '900', fontSize: 16, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+              {currentStep === 3 ? "ENREGISTRER L'INCIDENT" : "ÉTAPE SUIVANTE"}
             </Text>
           )}
         </TouchableOpacity>

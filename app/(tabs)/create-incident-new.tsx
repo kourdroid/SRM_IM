@@ -4,9 +4,9 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -63,6 +63,24 @@ export default function CreateIncidentScreen() {
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  // Reset form every time the screen gains focus (tab switching preserves state)
+  useFocusEffect(
+    useCallback(() => {
+      setCurrentStep(1);
+      setType("BT");
+      setIncidentDate(new Date());
+      setCommune("");
+      setVillage("");
+      setEquipment("");
+      setIsReclamation(false);
+      setReclamationName("");
+      setReclamationBy("Administration");
+      setSelectedImage(null);
+      setVoiceMode(true);
+      setRecordingDuration(0);
+    }, [])
+  );
 
   // Load Communes
   useEffect(() => {

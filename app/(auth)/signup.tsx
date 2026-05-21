@@ -52,7 +52,7 @@ export default function Signup() {
         if (!session) {
           Alert.alert('Vérifiez votre e-mail', 'Un lien de confirmation vous a été envoyé.');
         } else {
-          router.replace('/(tabs)/home');
+          router.replace('/');
         }
       }
     }

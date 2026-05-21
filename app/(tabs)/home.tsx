@@ -36,7 +36,7 @@ const styles = StyleSheet.create({
 export default function Home() {
   const { user } = useAuth();
   const db = useSQLiteContext();
-  const { isSyncing, syncPendingItems } = useSync();
+  const { isSyncing, syncPendingItems } = useSync(user?.id);
 
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,7 +60,10 @@ export default function Home() {
   const fetchIncidents = useCallback(async () => {
     try {
       setIsLoading(true);
-      const rows = await db.getAllAsync<Incident>('SELECT * FROM incidents ORDER BY date DESC');
+      const rows = await db.getAllAsync<Incident>(
+        'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
+        [user?.id]
+      );
       setIncidents(rows);
     } catch (error) {
       console.error('Error fetching incidents:', error);

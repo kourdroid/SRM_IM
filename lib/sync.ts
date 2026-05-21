@@ -5,8 +5,9 @@ import { supabase } from './supabase';
 
 /**
  * Sync local database with Supabase
+ * @param userId - Filter pulled incidents to only this user's records
  */
-export async function sync(db: SQLiteDatabase): Promise<void> {
+export async function sync(db: SQLiteDatabase, userId?: string): Promise<void> {
     console.log('Sync: Starting...');
 
     try {
@@ -19,8 +20,8 @@ export async function sync(db: SQLiteDatabase): Promise<void> {
         // 1. Pull communes (static reference data)
         await pullCommunes(db);
 
-        // 2. Pull incidents from server
-        await pullIncidents(db);
+        // 2. Pull incidents from server (only this user's if userId provided)
+        await pullIncidents(db, userId);
 
         // 3. Push unsynced local incidents
         await pushIncidents(db);
@@ -52,12 +53,18 @@ async function pullCommunes(db: SQLiteDatabase): Promise<void> {
 /**
  * Pull incidents from Supabase
  */
-async function pullIncidents(db: SQLiteDatabase): Promise<void> {
-    const { data, error } = await supabase
+async function pullIncidents(db: SQLiteDatabase, userId?: string): Promise<void> {
+    let query = supabase
         .from('incidents')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(100);
+
+    if (userId) {
+        query = query.eq('created_by', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
         console.error('Sync: Failed to pull incidents', error);

@@ -2,7 +2,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useRef, useState } from 'react';
 import { sync } from '../lib/sync';
 
-export function useSync() {
+export function useSync(userId?: string) {
     const db = useSQLiteContext();
     const [isSyncing, setIsSyncing] = useState(false);
     const isSyncingRef = useRef(false);
@@ -13,14 +13,14 @@ export function useSync() {
         try {
             isSyncingRef.current = true;
             setIsSyncing(true);
-            await sync(db);
+            await sync(db, userId);
         } catch (error) {
             console.error("Sync failed:", error);
         } finally {
             isSyncingRef.current = false;
             setIsSyncing(false);
         }
-    }, [db]); // Only depends on db, which is stable
+    }, [db, userId]);
 
     return { isSyncing, syncPendingItems };
 }

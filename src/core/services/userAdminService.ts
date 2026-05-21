@@ -13,17 +13,6 @@ export interface UserProfile {
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
 
-// Temporary client with persistSession: false to prevent session hijacking
-const createTempClient = () => {
-    return createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false,
-        },
-    });
-};
-
 export const UserAdminService = {
     /**
      * Fetches all registered user profiles using the get_admin_users RPC
@@ -72,6 +61,7 @@ export const UserAdminService = {
 
     /**
      * Creates a new user auth account and profile without swapping the admin's session.
+     * Requires "Auto Confirm" enabled in Supabase Auth settings to avoid sending emails.
      */
     async createUser(email: string, password: string, name: string, role: 'field' | 'admin'): Promise<UserProfile> {
         const networkState = await Network.getNetworkStateAsync();
@@ -79,38 +69,24 @@ export const UserAdminService = {
             throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
         }
 
-        const tempClient = createTempClient();
-        
-        // 1. Create authentication credentials
-        const { data: authData, error: authError } = await tempClient.auth.signUp({
-            email,
-            password,
+        const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
         });
 
+        const { data: authData, error: authError } = await tempClient.auth.signUp({ email, password });
         if (authError) throw new Error(authError.message);
         if (!authData.user) throw new Error('Failed to create user credentials.');
 
-        // 2. Insert user profile inside user_profiles table
         const { error: profileError } = await supabase
             .from('user_profiles')
-            .insert({
-                id: authData.user.id,
-                name: name,
-                role: role,
-            });
+            .insert({ id: authData.user.id, name, role });
 
         if (profileError) {
-            // Attempt to clean up orphan user from auth.users
             await supabase.rpc('delete_user_by_admin', { user_id: authData.user.id }).catch(() => {});
             throw new Error(`Profile setup failed: ${profileError.message}`);
         }
 
-        return {
-            id: authData.user.id,
-            role: role,
-            name: name,
-            email: email,
-        };
+        return { id: authData.user.id, role, name, email };
     },
 
     /**

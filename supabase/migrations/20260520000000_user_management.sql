@@ -1,4 +1,6 @@
 -- Safe user management functions for ONEE SRM Administrator
+-- Requires pgcrypto extension (enabled by default in Supabase)
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 -- RPC to list all users with their emails
 CREATE OR REPLACE FUNCTION get_admin_users()

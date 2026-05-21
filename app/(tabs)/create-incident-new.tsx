@@ -465,7 +465,7 @@ export default function CreateIncidentScreen() {
                 paddingHorizontal: 16,
                 color: '#111827',
                 fontSize: 18,
-                fontWeight: '500',
+                fontWeight: '600',
                 borderWidth: 1,
                 borderColor: '#D1D5DB',
               }}
@@ -491,7 +491,7 @@ export default function CreateIncidentScreen() {
                 paddingHorizontal: 16,
                 color: '#111827',
                 fontSize: 18,
-                fontWeight: '500',
+                fontWeight: '600',
                 borderWidth: 1,
                 borderColor: '#D1D5DB',
               }}

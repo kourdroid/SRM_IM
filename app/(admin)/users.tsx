@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.textMuted,
     marginTop: 2,
-    fontWeight: '500',
+    fontWeight: '600',
   },
 
   addButton: {
@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
 
   userEmail: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
     color: COLORS.textSecondary,
     marginTop: 2,
   },

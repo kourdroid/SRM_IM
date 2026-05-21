@@ -757,7 +757,7 @@ const styles = StyleSheet.create({
   modalDate: {
     fontSize: 12,
     color: COLORS.textSecondary,
-    fontWeight: '500',
+    fontWeight: '600',
   },
 
   detailRow: {

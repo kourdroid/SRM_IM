@@ -28,7 +28,7 @@ export async function sync(db: SQLiteDatabase, userId?: string): Promise<void> {
 
         console.log('Sync: Complete');
     } catch (error) {
-        console.error('Sync: Error', error);
+        console.error('Sync: Error occurred during sync process');
         throw error;
     }
 }
@@ -40,7 +40,7 @@ async function pullCommunes(db: SQLiteDatabase): Promise<void> {
     const { data, error } = await supabase.from('communes').select('*');
 
     if (error) {
-        console.error('Sync: Failed to pull communes', error);
+        console.error('Sync: Failed to pull communes');
         return;
     }
 
@@ -67,7 +67,7 @@ async function pullIncidents(db: SQLiteDatabase, userId?: string): Promise<void>
     const { data, error } = await query;
 
     if (error) {
-        console.error('Sync: Failed to pull incidents', error);
+        console.error('Sync: Failed to pull incidents');
         return;
     }
 
@@ -132,10 +132,6 @@ async function pushIncidents(db: SQLiteDatabase): Promise<void> {
 
     if (error) {
         console.error('Sync: Failed to push incidents');
-        console.error('Sync: Error code:', error.code);
-        console.error('Sync: Error message:', error.message);
-        console.error('Sync: Error details:', error.details);
-        console.error('Sync: Error hint:', error.hint);
         return;
     }
 

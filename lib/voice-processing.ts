@@ -97,32 +97,21 @@ export async function processVoiceRecording(
         const duration = Math.round(performance.now() - start);
         console.log(`[VoiceProcessing] Response received in ${duration}ms`);
         console.log(`[VoiceProcessing] Response status: ${response.status}`);
-        console.log(`[VoiceProcessing] Response headers:`, JSON.stringify(Object.fromEntries(response.headers.entries())));
 
         // 4. Handle errors
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('[VoiceProcessing] Error response body:', errorText);
-
-            let errorData;
-            try {
-                errorData = JSON.parse(errorText);
-            } catch {
-                errorData = { error: errorText || 'Unknown error' };
-            }
-
-            console.error('[VoiceProcessing] Parsed error:', errorData);
-            throw new Error(errorData.error || `HTTP ${response.status}`);
+            // Do not log the raw error response body to prevent leaking internal details.
+            console.error(`[VoiceProcessing] HTTP Error ${response.status}`);
+            throw new Error(`HTTP ${response.status}`);
         }
 
         // 5. Parse response
         const responseText = await response.text();
-        console.log('[VoiceProcessing] Response body:', responseText);
 
         const result: VoiceProcessingResponse = JSON.parse(responseText);
 
         if (!result.output) {
-            console.error('[VoiceProcessing] Invalid response structure:', result);
+            console.error('[VoiceProcessing] Invalid response structure received');
             throw new Error('Invalid response from voice processing service');
         }
 
@@ -130,8 +119,7 @@ export async function processVoiceRecording(
         console.log('[VoiceProcessing] === END ===');
         return result.output;
     } catch (error) {
-        console.error('[VoiceProcessing] Fetch error:', error);
-        console.error('[VoiceProcessing] Error details:', JSON.stringify(error, null, 2));
+        console.error('[VoiceProcessing] Processing failed. Check network or service status.');
         throw error;
     }
 }

@@ -1,10 +1,10 @@
 import { UserAdminService, type UserProfile } from '@/src/core/services/userAdminService';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Modal,
   Platform,
   ScrollView,
@@ -220,11 +220,13 @@ export default function UserManagement() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      <FlashList
         data={profiles}
         keyExtractor={p => p.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
+        // @ts-ignore
+        estimatedItemSize={80}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>

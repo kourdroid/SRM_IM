@@ -177,7 +177,10 @@ const CreateIncidentScreen = () => {
       formData.append('user_id', user?.id || 'unknown');
       formData.append('timestamp', new Date().toISOString());
 
-      const webhookUrl = process.env.EXPO_PUBLIC_N8N_WEBHOOK_URL || 'https://n8n.srv1078911.hstgr.cloud/webhook-test/2681ae8b-4c85-4522-bf61-dd51b00eb520';
+      const webhookUrl = process.env.EXPO_PUBLIC_N8N_WEBHOOK_URL;
+      if (!webhookUrl) {
+        throw new Error('Webhook URL is not configured');
+      }
       const response = await fetch(webhookUrl, {
         method: 'POST',
         body: formData,

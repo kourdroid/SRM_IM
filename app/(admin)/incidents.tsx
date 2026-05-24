@@ -365,6 +365,7 @@ export default function ManageIncidents() {
         <FlashList
           data={incidents}
           renderItem={renderItem}
+          // @ts-ignore
           estimatedItemSize={120}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}

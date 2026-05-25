@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, StatusBar, Text, TouchableOpacity, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSync } from '../../hooks/useSync';
@@ -26,13 +27,6 @@ interface Incident {
   synced: number;
 }
 
-// Inline styles to avoid NativeWind race condition
-const styles = StyleSheet.create({
-  modalOverlay: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-});
-
 export default function Home() {
   const { user } = useAuth();
   const db = useSQLiteContext();
@@ -46,7 +40,7 @@ export default function Home() {
   const [isModalVisible, setIsModalVisible] = useState(false);
 
   // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
+  const formatIncidentDate = useCallback((dateString?: string) => {
     if (!dateString) return 'Date inconnue';
     try {
       const date = new Date(dateString);
@@ -54,7 +48,7 @@ export default function Home() {
     } catch (error) {
       return 'Date invalide';
     }
-  };
+  }, []);
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async () => {
@@ -62,7 +56,7 @@ export default function Home() {
       setIsLoading(true);
       const rows = await db.getAllAsync<Incident>(
         'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id]
+        [user?.id || '']
       );
       setIncidents(rows);
     } catch (error) {
@@ -70,13 +64,13 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, [db, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       fetchIncidents();
       syncPendingItems();
-    }, [fetchIncidents])
+    }, [fetchIncidents, syncPendingItems])
   );
 
   const handleCloseIncident = async (incidentId: string) => {
@@ -92,7 +86,7 @@ export default function Home() {
     }
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
 
     return (
@@ -158,7 +152,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [formatIncidentDate]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -214,12 +208,14 @@ export default function Home() {
             <ActivityIndicator size="large" color="#DAF22C" />
           </View>
         ) : (
-          <FlatList
+          <FlashList
             data={incidents}
             renderItem={renderIncidentItem}
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            // @ts-ignore
+            estimatedItemSize={120}
             ListEmptyComponent={
               <View style={{
                 flex: 1,

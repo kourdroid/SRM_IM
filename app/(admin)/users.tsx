@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Modal,
   Platform,
   ScrollView,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 
 const COLORS = {
   primaryDark: '#111827',
@@ -220,12 +220,15 @@ export default function UserManagement() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      {/* ⚡ Bolt: Replaced FlatList with FlashList for better rendering performance and view recycling on long lists */}
+      <FlashList
         data={profiles}
         keyExtractor={p => p.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        // @ts-ignore
+        estimatedItemSize={120}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <View style={{

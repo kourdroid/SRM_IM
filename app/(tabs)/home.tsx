@@ -2,8 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { FlashList } from '@shopify/flash-list';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSync } from '../../hooks/useSync';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
@@ -214,12 +215,15 @@ export default function Home() {
             <ActivityIndicator size="large" color="#DAF22C" />
           </View>
         ) : (
-          <FlatList
+          /* ⚡ Bolt: Replaced FlatList with FlashList for better rendering performance and view recycling on long lists */
+          <FlashList
             data={incidents}
             renderItem={renderIncidentItem}
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            // @ts-ignore
+            estimatedItemSize={120}
             ListEmptyComponent={
               <View style={{
                 flex: 1,

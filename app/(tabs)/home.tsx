@@ -92,7 +92,10 @@ export default function Home() {
     }
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  // ⚡ Bolt Performance Optimization:
+  // Wrapped render function in useCallback to maintain referential equality across renders,
+  // preventing unnecessary re-renders of all FlatList items when unrelated state (like modal visibility) changes.
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
 
     return (
@@ -158,7 +161,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [setSelectedIncident, setIsModalVisible]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -220,6 +223,13 @@ export default function Home() {
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            // ⚡ Bolt Performance Optimization:
+            // Tuned FlatList rendering props to reduce memory footprint and frame drops during fast scrolling.
+            // Expected impact: smoother scrolling and lower memory usage for large lists.
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={true}
             ListEmptyComponent={
               <View style={{
                 flex: 1,

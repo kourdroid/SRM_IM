@@ -1,6 +1,6 @@
 import { UserAdminService, type UserProfile } from '@/src/core/services/userAdminService';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -56,7 +56,7 @@ export default function UserManagement() {
     }
   };
 
-  const toggleRole = async (profile: UserProfile, value: boolean) => {
+  const toggleRole = useCallback(async (profile: UserProfile, value: boolean) => {
     const newRole = value ? 'admin' : 'field';
     try {
       await UserAdminService.updateUserRole({ id: profile.id, role: newRole });
@@ -69,9 +69,9 @@ export default function UserManagement() {
         Alert.alert('Erreur de mise à jour', String(e));
       }
     }
-  };
+  }, []);
 
-  const handleDeleteUser = (profile: UserProfile) => {
+  const handleDeleteUser = useCallback((profile: UserProfile) => {
     Alert.alert(
       'Supprimer l\'utilisateur',
       `Êtes-vous sûr de vouloir supprimer définitivement le compte de ${profile.name || 'cet utilisateur'} ? Cette action est irréversible.`,
@@ -95,7 +95,7 @@ export default function UserManagement() {
         }
       ]
     );
-  };
+  }, []);
 
   const handleCreateUser = async () => {
     if (!newEmail.trim() || !newPassword.trim() || !newName.trim()) {
@@ -130,23 +130,23 @@ export default function UserManagement() {
     }
   };
 
-  const getInitials = (name: string | null): string => {
+  const getInitials = useCallback((name: string | null): string => {
     if (!name) return '?';
     const parts = name.trim().split(/\s+/);
     if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     return parts[0][0].toUpperCase();
-  };
+  }, []);
 
-  const getAvatarColor = (id: string): string => {
+  const getAvatarColor = useCallback((id: string): string => {
     const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
     let hash = 0;
     for (let i = 0; i < id.length; i++) {
       hash = id.charCodeAt(i) + ((hash << 5) - hash);
     }
     return colors[Math.abs(hash) % colors.length];
-  };
+  }, []);
 
-  const renderItem = ({ item }: { item: UserProfile }) => {
+  const renderItem = useCallback(({ item }: { item: UserProfile }) => {
     const isAdmin = item.role === 'admin';
 
     return (
@@ -189,7 +189,7 @@ export default function UserManagement() {
         </TouchableOpacity>
       </View>
     );
-  };
+  }, [getAvatarColor, getInitials, toggleRole, handleDeleteUser]);
 
   if (loading && profiles.length === 0) {
     return (

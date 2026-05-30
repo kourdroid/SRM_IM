@@ -62,7 +62,7 @@ export default function Home() {
       setIsLoading(true);
       const rows = await db.getAllAsync<Incident>(
         'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id]
+        [user?.id ?? null]
       );
       setIncidents(rows);
     } catch (error) {

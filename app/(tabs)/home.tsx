@@ -62,7 +62,7 @@ export default function Home() {
       setIsLoading(true);
       const rows = await db.getAllAsync<Incident>(
         'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id]
+        [user?.id || '']
       );
       setIncidents(rows);
     } catch (error) {
@@ -70,13 +70,13 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, [db, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       fetchIncidents();
       syncPendingItems();
-    }, [fetchIncidents])
+    }, [fetchIncidents, syncPendingItems])
   );
 
   const handleCloseIncident = async (incidentId: string) => {
@@ -92,7 +92,7 @@ export default function Home() {
     }
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
 
     return (
@@ -158,7 +158,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [setSelectedIncident, setIsModalVisible]); // Optimized render function with useCallback to prevent unnecessary FlatList re-renders
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -220,6 +220,11 @@ export default function Home() {
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            // Performance optimizations for long lists
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={5}
+            removeClippedSubviews={true}
             ListEmptyComponent={
               <View style={{
                 flex: 1,

@@ -33,6 +33,18 @@ const styles = StyleSheet.create({
   },
 });
 
+// Format incident date for display
+// Moved outside component to prevent recreation on every render
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch (_e) {
+    return 'Date invalide';
+  }
+};
+
 export default function Home() {
   const { user } = useAuth();
   const db = useSQLiteContext();
@@ -45,38 +57,27 @@ export default function Home() {
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch (error) {
-      return 'Date invalide';
-    }
-  };
-
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async () => {
     try {
       setIsLoading(true);
       const rows = await db.getAllAsync<Incident>(
         'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id]
+        [user?.id ?? null]
       );
       setIncidents(rows);
-    } catch (error) {
-      console.error('Error fetching incidents:', error);
+    } catch (_e) {
+      console.error('Error fetching incidents:', _e);
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, [db, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       fetchIncidents();
       syncPendingItems();
-    }, [fetchIncidents])
+    }, [fetchIncidents, syncPendingItems])
   );
 
   const handleCloseIncident = async (incidentId: string) => {
@@ -86,13 +87,13 @@ export default function Home() {
       setIsModalVisible(false);
       fetchIncidents();
       syncPendingItems();
-    } catch (error) {
-      console.error(error);
+    } catch (_e) {
+      console.error(_e);
       Alert.alert("Erreur", "Impossible de clôturer l'incident");
     }
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
 
     return (
@@ -158,7 +159,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, []); // no dependencies needed as state setters are stable and no other deps are used from scope
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -220,6 +221,10 @@ export default function Home() {
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={true}
             ListEmptyComponent={
               <View style={{
                 flex: 1,

@@ -1,0 +1,3 @@
+## 2025-03-01 - Optimizing FlatList renderers
+**Learning:** Extracting helper functions (like date formatters) outside of component scopes and wrapping `renderItem` methods with `useCallback` including proper dependency arrays significantly prevents re-renders during FlatList scrolling, leading to a much smoother list experience. Additionally, using `initialNumToRender`, `maxToRenderPerBatch`, `windowSize`, and `removeClippedSubviews` effectively limits memory consumption when displaying large sets of incidents.
+**Action:** When working on lists or large arrays, always check if child views, style generation, or string formatters can be safely moved to global scope, and correctly memoize the render block.

@@ -26,6 +26,17 @@ interface Incident {
   synced: number;
 }
 
+// Format incident date for display
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch (error) {
+    return 'Date invalide';
+  }
+};
+
 // Inline styles to avoid NativeWind race condition
 const styles = StyleSheet.create({
   modalOverlay: {
@@ -45,24 +56,13 @@ export default function Home() {
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch (error) {
-      return 'Date invalide';
-    }
-  };
-
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async () => {
     try {
       setIsLoading(true);
       const rows = await db.getAllAsync<Incident>(
         'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id]
+        [user?.id ?? null]
       );
       setIncidents(rows);
     } catch (error) {
@@ -70,13 +70,13 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, [db, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       fetchIncidents();
       syncPendingItems();
-    }, [fetchIncidents])
+    }, [fetchIncidents, syncPendingItems])
   );
 
   const handleCloseIncident = async (incidentId: string) => {
@@ -92,7 +92,11 @@ export default function Home() {
     }
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  // Memoize keyExtractor to prevent re-creation on every render
+  const keyExtractor = useCallback((item: Incident) => item.id, []);
+
+  // Memoize renderIncidentItem to prevent unnecessary re-renders of list items during scrolling
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
 
     return (
@@ -158,7 +162,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [setSelectedIncident, setIsModalVisible]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -217,9 +221,17 @@ export default function Home() {
           <FlatList
             data={incidents}
             renderItem={renderIncidentItem}
-            keyExtractor={item => item.id}
+            keyExtractor={keyExtractor}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            // FlatList Performance Optimizations:
+            // - initialNumToRender/maxToRenderPerBatch: reduce initial render time and frame drops
+            // - windowSize: limits the number of rendered items off-screen to save memory
+            // - removeClippedSubviews: unmounts views that are outside of the window
+            initialNumToRender={8}
+            maxToRenderPerBatch={8}
+            windowSize={5}
+            removeClippedSubviews={true}
             ListEmptyComponent={
               <View style={{
                 flex: 1,

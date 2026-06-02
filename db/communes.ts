@@ -18,7 +18,7 @@ export async function getCommunes(db: SQLiteDatabase): Promise<CommuneRow[]> {
  */
 export async function upsertCommunesFromServer(
     db: SQLiteDatabase,
-    communes: Array<{ id: string; name: string }>
+    communes: { id: string; name: string }[]
 ): Promise<void> {
     for (const commune of communes) {
         await db.runAsync(

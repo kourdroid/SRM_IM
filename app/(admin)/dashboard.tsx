@@ -3,11 +3,13 @@ import { type ChartDataPoint, type DashboardStats } from '@/src/core/entities/ad
 import { AdminService } from '@/src/core/services/adminService';
 import { IncidentAdminService, type Incident } from '@/src/core/services/incidentAdminService';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,7 +17,6 @@ import {
   TouchableOpacity,
   View,
   Modal,
-  Image,
 } from 'react-native';
 
 // ─── Color Palette ───────────────────────────────────────────────
@@ -94,6 +95,12 @@ export default function AdminDashboard() {
     }
   };
 
+  const openIncidentMap = (incident: Incident) => {
+    if (incident.latitude == null || incident.longitude == null) return;
+    const query = `${incident.latitude},${incident.longitude}`;
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -118,7 +125,7 @@ export default function AdminDashboard() {
             </View>
             <View style={styles.headerBadge}>
               <Ionicons name="time-outline" size={14} color={COLORS.white} />
-              <Text style={styles.headerBadgeText}>Aujourd'hui</Text>
+              <Text style={styles.headerBadgeText}>{"Aujourd'hui"}</Text>
             </View>
           </View>
         </View>
@@ -222,7 +229,7 @@ export default function AdminDashboard() {
                     </Text>
                   </View>
                   <Text style={styles.incidentTitle} numberOfLines={1}>
-                    {item.incident_type}
+                    {item.title || item.incident_type}
                   </Text>
                   <Text style={styles.incidentDesc} numberOfLines={2}>
                     {item.description || 'Aucune description fournie'}
@@ -249,7 +256,7 @@ export default function AdminDashboard() {
             style={styles.showMoreButton}
             onPress={() => router.push('/(admin)/incidents')}
           >
-            <Text style={styles.showMoreText}>Voir plus d'incidents</Text>
+            <Text style={styles.showMoreText}>{"Voir plus d'incidents"}</Text>
             <Ionicons name="arrow-forward" size={16} color={COLORS.primaryDark} />
           </TouchableOpacity>
         </View>
@@ -276,7 +283,7 @@ export default function AdminDashboard() {
                       <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
                     </View>
                     <Text style={styles.modalTitle} numberOfLines={1}>
-                      Détails de l'incident
+                      {selectedIncident.title || "Détails de l'incident"}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -309,7 +316,7 @@ export default function AdminDashboard() {
 
                   {/* Incident Type Details */}
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Type d'incident</Text>
+                    <Text style={styles.detailLabel}>{"Type d'incident"}</Text>
                     <Text style={styles.detailValue}>{selectedIncident.incident_type}</Text>
                   </View>
 
@@ -323,11 +330,38 @@ export default function AdminDashboard() {
                     <Text style={styles.detailValue}>{selectedIncident.village}</Text>
                   </View>
 
+                  {selectedIncident.latitude != null && selectedIncident.longitude != null && (
+                    <TouchableOpacity
+                      style={styles.detailRow}
+                      onPress={() => openIncidentMap(selectedIncident)}
+                    >
+                      <Text style={styles.detailLabel}>Position GPS</Text>
+                      <Text style={styles.detailValue}>
+                        {selectedIncident.latitude.toFixed(6)}, {selectedIncident.longitude.toFixed(6)}
+                      </Text>
+                      <Text style={styles.mapLinkText}>Ouvrir dans Google Maps</Text>
+                    </TouchableOpacity>
+                  )}
+
                   {/* Creator */}
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Rapporté par</Text>
                     <Text style={styles.detailValue}>{selectedIncident.created_by_name || 'Agent Terrain'}</Text>
                   </View>
+
+                  {selectedIncident.status === 'closed' && (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Clôturé par</Text>
+                      <Text style={styles.detailValue}>
+                        {selectedIncident.closed_by_name || 'Utilisateur inconnu'}
+                      </Text>
+                      {selectedIncident.closed_at && (
+                        <Text style={styles.mapLinkText}>
+                          {new Date(selectedIncident.closed_at).toLocaleString()}
+                        </Text>
+                      )}
+                    </View>
+                  )}
 
                   {/* Equipment */}
                   <View style={styles.detailRow}>
@@ -368,6 +402,7 @@ export default function AdminDashboard() {
                             key={i}
                             source={{ uri: url }}
                             style={styles.attachmentThumbnail}
+                            contentFit="cover"
                           />
                         ))}
                       </ScrollView>
@@ -779,6 +814,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.textPrimary,
     fontWeight: '600',
+  },
+
+  mapLinkText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
+    marginTop: 4,
   },
 
   detailDescValue: {

@@ -19,10 +19,17 @@ export const AdminIncidentUpdateSchema = z.object({
 
 export const UserRoleUpdateSchema = z.object({
     id: z.string().uuid(),
-    role: z.enum(['field', 'admin'])
+    role: z.enum(['field', 'admin', 'director'])
+});
+
+export const CommuneMutationSchema = z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().trim().min(2).max(120),
 });
 
 export type DashboardStats = z.infer<typeof DashboardStatsSchema>;
 export type MonthlyChartPoint = z.infer<typeof MonthlyChartPointSchema>;
+export type ChartDataPoint = MonthlyChartPoint;
 export type AdminIncidentUpdate = z.infer<typeof AdminIncidentUpdateSchema>;
 export type UserRoleUpdate = z.infer<typeof UserRoleUpdateSchema>;
+export type CommuneMutation = z.infer<typeof CommuneMutationSchema>;

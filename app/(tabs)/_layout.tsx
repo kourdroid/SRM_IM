@@ -1,9 +1,29 @@
+import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import CustomTabBar from '../../components/CustomTabBar';
 
 export default function TabLayout() {
+  const { loading, role } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6' }}>
+        <ActivityIndicator size="large" color="#111827" />
+      </View>
+    );
+  }
+
+  if (role === 'admin') {
+    return <Redirect href="/(admin)/dashboard" />;
+  }
+
+  if (role === 'director') {
+    return <Redirect href="/(director)/dashboard" />;
+  }
+
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}

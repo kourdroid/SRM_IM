@@ -5,10 +5,12 @@ import { UserRoleUpdateSchema, type UserRoleUpdate } from '../entities/admin';
 
 export interface UserProfile {
     id: string;
-    role: 'field' | 'admin';
+    role: UserRole;
     name: string | null;
     email: string | null;
 }
+
+export type UserRole = 'field' | 'admin' | 'director';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -41,7 +43,7 @@ export const UserAdminService = {
     },
 
     /**
-     * Strictly Online mutation logic enforcing Binary Roles (field | admin)
+     * Strictly Online mutation logic enforcing controlled roles.
      */
     async updateUserRole(updatePayload: UserRoleUpdate): Promise<void> {
         const validPayload = UserRoleUpdateSchema.parse(updatePayload);
@@ -63,7 +65,7 @@ export const UserAdminService = {
      * Creates a new user auth account and profile without swapping the admin's session.
      * Requires "Auto Confirm" enabled in Supabase Auth settings to avoid sending emails.
      */
-    async createUser(email: string, password: string, name: string, role: 'field' | 'admin'): Promise<UserProfile> {
+    async createUser(email: string, password: string, name: string, role: UserRole): Promise<UserProfile> {
         const networkState = await Network.getNetworkStateAsync();
         if (!networkState.isConnected || !networkState.isInternetReachable) {
             throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
@@ -73,16 +75,27 @@ export const UserAdminService = {
             auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
         });
 
-        const { data: authData, error: authError } = await tempClient.auth.signUp({ email, password });
+        const { data: authData, error: authError } = await tempClient.auth.signUp({
+            email,
+            password,
+            options: {
+                data: { name, role },
+            },
+        });
         if (authError) throw new Error(authError.message);
         if (!authData.user) throw new Error('Failed to create user credentials.');
 
         const { error: profileError } = await supabase
             .from('user_profiles')
-            .insert({ id: authData.user.id, name, role });
+            .upsert({ id: authData.user.id, name, role }, { onConflict: 'id' });
 
         if (profileError) {
-            await supabase.rpc('delete_user_by_admin', { user_id: authData.user.id }).catch(() => {});
+            const { error: rollbackError } = await supabase.rpc('delete_user_by_admin', {
+                user_id: authData.user.id,
+            });
+            if (rollbackError) {
+                console.warn('Failed to rollback auth user after profile setup error:', rollbackError.message);
+            }
             throw new Error(`Profile setup failed: ${profileError.message}`);
         }
 

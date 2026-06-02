@@ -2,12 +2,13 @@ import { supabase } from '@/lib/supabase';
 import { IncidentAdminService, type Incident, type IncidentFilters } from '@/src/core/services/incidentAdminService';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -47,17 +48,29 @@ export default function ManageIncidents() {
   const [communeId, setCommuneId] = useState<string>('all');
   const [reclamation, setReclamation] = useState<boolean | undefined>(undefined);
   const [datePreset, setDatePreset] = useState<'all' | 'today' | '7days' | '30days'>('all');
+  const [agentId, setAgentId] = useState<string>('all');
+  const [hasGps, setHasGps] = useState<boolean | undefined>(undefined);
+  const [hasMedia, setHasMedia] = useState<boolean | undefined>(undefined);
 
   // UI state
   const [showFilters, setShowFilters] = useState(false);
   const [communes, setCommunes] = useState<{ id: string; name: string }[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string | null }[]>([]);
   const [showCommuneModal, setShowCommuneModal] = useState(false);
+  const [showAgentModal, setShowAgentModal] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     loadInitial();
+    // Search is handled by the debounced effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, type, communeId, reclamation, datePreset, agentId, hasGps, hasMedia]);
+
+  useEffect(() => {
     fetchCommunes();
-  }, [status, type, communeId, reclamation, datePreset]);
+    fetchAgents();
+  }, []);
 
   // Debounced search trigger
   useEffect(() => {
@@ -65,6 +78,8 @@ export default function ManageIncidents() {
       loadInitial();
     }, 400);
     return () => clearTimeout(delayDebounce);
+    // Keep search debounce isolated from the other filter effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
   const fetchCommunes = async () => {
@@ -105,6 +120,9 @@ export default function ManageIncidents() {
       reclamation,
       startDate,
       endDate,
+      agentId,
+      hasGps,
+      hasMedia,
       search: search.trim() !== '' ? search : undefined,
     };
   };
@@ -161,19 +179,50 @@ export default function ManageIncidents() {
         setSelectedIncident(prev => prev ? { ...prev, status: newStatus } : null);
       }
       Alert.alert('Succès', `Incident marqué comme ${newStatus === 'closed' ? 'fermé' : 'ouvert'}.`);
-    } catch (e: any) {
-      if (e.message?.includes('NETWORK_OFFLINE')) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes('NETWORK_OFFLINE')) {
         Alert.alert('Action Hors Ligne Bloquée', 'Les mutations administrateur requièrent une connexion internet active.');
       } else {
-        Alert.alert('Erreur', String(e));
+        Alert.alert('Erreur', message);
       }
     }
+  };
+
+  const openIncidentMap = (incident: Incident) => {
+    if (incident.latitude == null || incident.longitude == null) return;
+    const query = `${incident.latitude},${incident.longitude}`;
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  };
+
+  const formatIncidentAge = (incident: Incident) => {
+    const end = incident.closed_at || new Date().toISOString();
+    return formatDurationBetween(incident.created_at, end);
   };
 
   const getCommuneName = (id: string) => {
     if (id === 'all') return 'Toutes les Communes';
     const comm = communes.find(c => c.id === id);
     return comm ? comm.name : 'Commune Inconnue';
+  };
+
+  const fetchAgents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('id, name')
+        .order('name');
+      if (error) throw error;
+      setAgents(data || []);
+    } catch (e) {
+      console.error('Failed to load agents:', e);
+    }
+  };
+
+  const getAgentName = (id: string) => {
+    if (id === 'all') return 'Tous les Agents';
+    const agent = agents.find(a => a.id === id);
+    return agent?.name || 'Agent inconnu';
   };
 
   const renderItem = ({ item }: { item: Incident }) => {
@@ -195,7 +244,7 @@ export default function ManageIncidents() {
             </Text>
           </View>
           <Text style={styles.incidentTypeTitle} numberOfLines={1}>
-            {item.incident_type}
+            {item.title || item.incident_type}
           </Text>
           <Text style={styles.description} numberOfLines={2}>
             {item.description || 'Aucune description fournie.'}
@@ -352,6 +401,42 @@ export default function ManageIncidents() {
             <Ionicons name="chevron-down" size={16} color={COLORS.textPrimary} />
           </TouchableOpacity>
 
+          <Text style={styles.filterSectionTitle}>Agent</Text>
+          <TouchableOpacity
+            style={styles.communeSelectorButton}
+            onPress={() => setShowAgentModal(true)}
+          >
+            <Text style={styles.communeSelectorButtonText}>
+              {getAgentName(agentId)}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+
+          <Text style={styles.filterSectionTitle}>Qualité du Rapport</Text>
+          <View style={styles.chipsRow}>
+            <TouchableOpacity
+              style={[styles.chip, hasGps === undefined && hasMedia === undefined && styles.chipActive]}
+              onPress={() => {
+                setHasGps(undefined);
+                setHasMedia(undefined);
+              }}
+            >
+              <Text style={[styles.chipLabel, hasGps === undefined && hasMedia === undefined && styles.chipLabelActive]}>Tous</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, hasGps === false && styles.chipActive]}
+              onPress={() => setHasGps(false)}
+            >
+              <Text style={[styles.chipLabel, hasGps === false && styles.chipLabelActive]}>GPS manquant</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, hasMedia === false && styles.chipActive]}
+              onPress={() => setHasMedia(false)}
+            >
+              <Text style={[styles.chipLabel, hasMedia === false && styles.chipLabelActive]}>Photo manquante</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={{ height: 20 }} />
         </ScrollView>
       )}
@@ -365,7 +450,6 @@ export default function ManageIncidents() {
         <FlashList
           data={incidents}
           renderItem={renderItem}
-          estimatedItemSize={120}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           onRefresh={handleRefresh}
@@ -428,6 +512,51 @@ export default function ManageIncidents() {
         </View>
       </Modal>
 
+      <Modal
+        visible={showAgentModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowAgentModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.communeModalContainer}>
+            <View style={styles.communeModalHeader}>
+              <Text style={styles.communeModalTitle}>Sélectionner l&apos;Agent</Text>
+              <TouchableOpacity onPress={() => setShowAgentModal(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={[{ id: 'all', name: 'Tous les Agents' }, ...agents]}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.communeRow,
+                    agentId === item.id && styles.communeRowActive
+                  ]}
+                  onPress={() => {
+                    setAgentId(item.id);
+                    setShowAgentModal(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.communeRowText,
+                    agentId === item.id && styles.communeRowTextActive
+                  ]}>
+                    {item.name || 'Agent inconnu'}
+                  </Text>
+                  {agentId === item.id && (
+                    <Ionicons name="checkmark" size={20} color={COLORS.primaryDark} />
+                  )}
+                </TouchableOpacity>
+              )}
+              ItemSeparatorComponent={() => <View style={styles.separator} />}
+            />
+          </View>
+        </View>
+      </Modal>
+
       {/* ─── Incident Detail Modal ─────────────────────────────── */}
       <Modal
         visible={selectedIncident !== null}
@@ -446,7 +575,7 @@ export default function ManageIncidents() {
                       <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
                     </View>
                     <Text style={styles.detailModalTitle} numberOfLines={1}>
-                      Fiche Incident
+                      {selectedIncident.title || 'Fiche Incident'}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -479,7 +608,7 @@ export default function ManageIncidents() {
 
                   {/* Incident Type Details */}
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Type d'incident</Text>
+                    <Text style={styles.detailLabel}>{"Type d'incident"}</Text>
                     <Text style={styles.detailValue}>{selectedIncident.incident_type}</Text>
                   </View>
 
@@ -493,11 +622,51 @@ export default function ManageIncidents() {
                     <Text style={styles.detailValue}>{selectedIncident.village}</Text>
                   </View>
 
+                  {selectedIncident.latitude != null && selectedIncident.longitude != null && (
+                    <TouchableOpacity
+                      style={styles.detailRow}
+                      onPress={() => openIncidentMap(selectedIncident)}
+                    >
+                      <Text style={styles.detailLabel}>Position GPS</Text>
+                      <Text style={styles.detailValue}>
+                        {selectedIncident.latitude.toFixed(6)}, {selectedIncident.longitude.toFixed(6)}
+                      </Text>
+                      <Text style={styles.mapLinkText}>Ouvrir dans Google Maps</Text>
+                    </TouchableOpacity>
+                  )}
+
                   {/* Creator */}
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Rapporté par</Text>
                     <Text style={styles.detailValue}>{selectedIncident.created_by_name || 'Agent de terrain'}</Text>
                   </View>
+
+                  {selectedIncident.status === 'closed' && (
+                    <>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Clôturé par</Text>
+                        <Text style={styles.detailValue}>
+                          {selectedIncident.closed_by_name || 'Utilisateur inconnu'}
+                        </Text>
+                        {selectedIncident.closed_at && (
+                          <Text style={styles.mapLinkText}>
+                            {new Date(selectedIncident.closed_at).toLocaleString()}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Durée de traitement</Text>
+                        <Text style={styles.detailValue}>{formatIncidentAge(selectedIncident)}</Text>
+                      </View>
+                    </>
+                  )}
+
+                  {selectedIncident.status === 'open' && (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Ouvert depuis</Text>
+                      <Text style={styles.detailValue}>{formatIncidentAge(selectedIncident)}</Text>
+                    </View>
+                  )}
 
                   {/* Equipment */}
                   <View style={styles.detailRow}>
@@ -534,11 +703,13 @@ export default function ManageIncidents() {
                       <Text style={styles.detailLabel}>Photos Jointes ({selectedIncident.media_urls.length})</Text>
                       <ScrollView horizontal={true} showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                         {selectedIncident.media_urls.map((url, i) => (
+                          <TouchableOpacity key={url || i} onPress={() => setSelectedPhotoUrl(url)}>
                           <Image
-                            key={i}
                             source={{ uri: url }}
                             style={styles.attachmentThumbnail}
+                            contentFit="cover"
                           />
+                          </TouchableOpacity>
                         ))}
                       </ScrollView>
                     </View>
@@ -567,6 +738,29 @@ export default function ManageIncidents() {
               </>
             )}
           </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={selectedPhotoUrl !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedPhotoUrl(null)}
+      >
+        <View style={styles.photoViewerOverlay}>
+          <TouchableOpacity
+            style={styles.photoViewerClose}
+            onPress={() => setSelectedPhotoUrl(null)}
+          >
+            <Ionicons name="close" size={26} color={COLORS.white} />
+          </TouchableOpacity>
+          {selectedPhotoUrl && (
+            <Image
+              source={{ uri: selectedPhotoUrl }}
+              style={styles.photoViewerImage}
+              contentFit="contain"
+            />
+          )}
         </View>
       </Modal>
     </View>
@@ -1008,6 +1202,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  mapLinkText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+
   detailDescValue: {
     fontSize: 14,
     color: COLORS.textPrimary,
@@ -1046,6 +1247,31 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBorder,
   },
 
+  photoViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(17, 24, 39, 0.96)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  photoViewerClose: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 56 : 32,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+
+  photoViewerImage: {
+    width: '100%',
+    height: '82%',
+  },
+
   modalFooter: {
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
@@ -1067,3 +1293,20 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 });
+
+function formatDurationBetween(startValue: string, endValue: string): string {
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return 'Durée inconnue';
+  }
+
+  const totalMinutes = Math.max(0, Math.round((end - start) / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days} j ${hours} h`;
+  if (hours > 0) return `${hours} h ${minutes} min`;
+  return `${minutes} min`;
+}

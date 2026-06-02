@@ -1,5 +1,5 @@
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
-import { supabase } from '@/lib/supabase';
+import { supabase, toSupabaseUserMessage } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
@@ -30,13 +30,18 @@ export default function Login() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      Alert.alert('Erreur de connexion', error.message);
-    } else {
-      router.replace('/');
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        Alert.alert('Erreur de connexion', toSupabaseUserMessage(error));
+      } else {
+        router.replace('/');
+      }
+    } catch (error) {
+      Alert.alert('Erreur de connexion', toSupabaseUserMessage(error));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (

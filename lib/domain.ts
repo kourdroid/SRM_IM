@@ -108,7 +108,7 @@ export interface ICommuneRepository {
     /**
      * Upsert communes from server
      */
-    upsertFromServer(communes: Array<{ id: string; name: string }>): Promise<void>;
+    upsertFromServer(communes: { id: string; name: string }[]): Promise<void>;
 }
 
 // ============================================================

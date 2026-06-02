@@ -14,10 +14,28 @@
     "emitDecoratorMetadata": true
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "constants/**/*.ts",
+    "contexts/**/*.ts",
+    "contexts/**/*.tsx",
+    "db/**/*.ts",
+    "hooks/**/*.ts",
+    "lib/**/*.ts",
+    "src/**/*.ts",
+    "types/**/*.ts",
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
     "nativewind-env.d.ts"
+  ],
+  "exclude": [
+    "components/backup_*",
+    "Guidelines",
+    ".agent",
+    ".agents",
+    "supabase/functions",
+    "node_modules"
   ]
 }

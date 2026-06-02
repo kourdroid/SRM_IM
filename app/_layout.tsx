@@ -1,6 +1,7 @@
 import { AuthProvider } from '@/contexts/AuthContext';
 import { initDatabase } from '@/db';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import SyncCoordinator from '@/components/SyncCoordinator';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -44,12 +45,14 @@ export default function RootLayout() {
     <Suspense fallback={<LoadingFallback />}>
       <SQLiteProvider databaseName="srm.db" onInit={initDatabase}>
         <AuthProvider>
+          <SyncCoordinator />
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack screenOptions={{ contentStyle: { backgroundColor: '#FAFAFA' } }}>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="(auth)" options={{ headerShown: false }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="(admin)" options={{ headerShown: false }} />
+              <Stack.Screen name="(director)" options={{ headerShown: false }} />
               <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
             </Stack>
             <StatusBar style="auto" />

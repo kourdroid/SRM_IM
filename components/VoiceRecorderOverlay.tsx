@@ -1,28 +1,21 @@
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from "@/src/core/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect } from "react";
-import { Dimensions, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
-    Easing,
     Extrapolation,
     interpolate,
     SharedValue,
     useAnimatedStyle,
     useSharedValue,
-    withRepeat,
-    withSpring,
-    withTiming
+    withTiming,
 } from "react-native-reanimated";
-import { Circle } from "react-native-svg";
-
-const { width } = Dimensions.get("window");
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface Props {
     isVisible: boolean;
     isRecording: boolean;
     isProcessing: boolean;
-    metering: SharedValue<number>; // dB value: -160 to 0
+    metering: SharedValue<number>;
     onStartRecording: () => void;
     onStopRecording: () => void;
     onCancel: () => void;
@@ -39,119 +32,89 @@ export default function VoiceRecorderOverlay({
     onCancel,
     durationFormatted
 }: Props) {
-    // 1. Enter Animation
     const containerOpacity = useSharedValue(0);
 
     useEffect(() => {
-        containerOpacity.value = withTiming(isVisible ? 1 : 0, { duration: 400 });
-    }, [isVisible]);
+        containerOpacity.value = withTiming(isVisible ? 1 : 0, { duration: 180 });
+    }, [containerOpacity, isVisible]);
 
     const containerStyle = useAnimatedStyle(() => ({
         opacity: containerOpacity.value,
-        transform: [{ scale: interpolate(containerOpacity.value, [0, 1], [1.1, 1]) }]
     }));
 
-    if (!isVisible && containerOpacity.value === 0) return null;
-
-    // 2. Visualizer Bars (Creating 5 bars for simple generic "AI" look)
-    // We can also do a circle pulse.
-    // User requested "disibles of sound".
-
-    // Pulse Animation based on metering
-    const orbStyle = useAnimatedStyle(() => {
-        // Metering is approx -60 (quiet) to 0 (loud). -160 is silence.
-        // Map -60 -> 0 to Scale 1 -> 1.5
-        const db = metering.value;
-        const scale = interpolate(db, [-60, 0], [1, 1.8], Extrapolation.CLAMP);
-        const opacity = interpolate(db, [-60, 0], [0.5, 1], Extrapolation.CLAMP);
-
+    const meterStyle = useAnimatedStyle(() => {
+        const scale = interpolate(metering.value, [-60, 0], [0.16, 1], Extrapolation.CLAMP);
         return {
-            transform: [{ scale: withSpring(isRecording ? scale : 1, { damping: 10 }) }],
-            opacity: withSpring(isRecording ? opacity : 0.6)
+            transform: [{ scaleX: isRecording ? scale : 0.16 }],
         };
     });
 
-    // Processing Animation (Spin)
-    const spin = useSharedValue(0);
-    useEffect(() => {
-        if (isProcessing) {
-            spin.value = withRepeat(withTiming(360, { duration: 2000, easing: Easing.linear }), -1);
-        } else {
-            spin.value = 0;
-        }
-    }, [isProcessing]);
+    if (!isVisible && containerOpacity.value === 0) return null;
 
-    const loadingStyle = useAnimatedStyle(() => ({
-        transform: [{ rotate: `${spin.value}deg` }]
-    }));
+    const title = isProcessing
+        ? "Analyse du signalement"
+        : isRecording
+            ? "Écoute en cours"
+            : "Signalement vocal";
+
+    const status = isProcessing
+        ? "Traitement de l'audio..."
+        : isRecording
+            ? durationFormatted
+            : "Dictez l'incident en Darija ou en français.";
 
     return (
         <Animated.View style={[styles.overlay, containerStyle]}>
-            <LinearGradient
-                colors={['#0F172A', '#020617', '#000000']}
-                style={StyleSheet.absoluteFill}
-            />
-
-            {/* Background Particles/Glow */}
-            <View style={styles.glowContainer}>
-                <View style={styles.glowBlob} />
+            <View style={styles.header}>
+                <View>
+                    <Text style={styles.headerKicker}>NOUVEL INCIDENT</Text>
+                    <Text style={styles.headerTitle}>{title}</Text>
+                </View>
+                <Pressable onPress={onCancel} style={styles.closeButton} disabled={isProcessing}>
+                    <Ionicons name="close" size={22} color={COLORS.surface} />
+                </Pressable>
             </View>
 
             <View style={styles.content}>
+                <View style={styles.panel}>
+                    <View style={styles.meterTrack}>
+                        <Animated.View style={[styles.meterFill, meterStyle]} />
+                    </View>
 
-                {/* Header Text */}
-                <Text style={styles.title}>
-                    {isProcessing ? "Processing Intelligence..." : isRecording ? "Listening..." : "New Incident"}
-                </Text>
-
-                {!isProcessing && (
-                    <Text style={styles.subtitle}>
-                        {isRecording ? durationFormatted : "Tap to activate AI Voice Analysis"}
+                    <Text style={styles.statusText}>{status}</Text>
+                    <Text style={styles.helperText}>
+                        Vous pourrez vérifier et corriger les champs avant l&apos;enregistrement.
                     </Text>
-                )}
 
-                {/* Dynamic Orb / Button */}
-                <View style={styles.orbContainer}>
-                    {/* The Glowing Aura */}
-                    <Animated.View style={[styles.orbGlow, orbStyle]} />
-
-                    {/* Loading Ring */}
-                    {isProcessing && (
-                        <Animated.View style={[styles.loadingRing, loadingStyle]}>
-                            <LinearGradient
-                                colors={['transparent', '#DAF22C']}
-                                style={{ flex: 1, borderRadius: 100 }}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                            />
-                        </Animated.View>
-                    )}
-
-                    {/* Main Button */}
                     <Pressable
                         onPress={isRecording ? onStopRecording : onStartRecording}
                         disabled={isProcessing}
-                        style={[styles.mainButton, isRecording && styles.recordingButton]}
+                        style={[
+                            styles.recordButton,
+                            isRecording && styles.recordButtonActive,
+                            isProcessing && styles.recordButtonDisabled,
+                        ]}
                     >
-                        <Ionicons
-                            name={isRecording ? "stop" : "mic"}
-                            size={40}
-                            color={isRecording ? "#FFFFFF" : "#191820"}
-                        />
+                        {isProcessing ? (
+                            <Ionicons name="hourglass-outline" size={34} color={COLORS.textPrimary} />
+                        ) : (
+                            <Ionicons
+                                name={isRecording ? "stop" : "mic"}
+                                size={36}
+                                color={isRecording ? COLORS.surface : COLORS.textPrimary}
+                            />
+                        )}
                     </Pressable>
+
+                    <Text style={styles.actionLabel}>
+                        {isProcessing ? "Analyse" : isRecording ? "Arrêter" : "Démarrer"}
+                    </Text>
                 </View>
 
-                {/* Waveform Visualization (Simple CSS Bars if simple, or SVG for complexity) */}
-                {/* For performance, we stick to the Orb Pulse above which is driven by metering */}
-
-                {/* Cancel Action */}
-                <Pressable onPress={onCancel} style={styles.cancelButton}>
-                    <View style={styles.cancelIcon}>
-                        <Ionicons name="close" size={24} color="#FFFFFF" />
-                    </View>
-                    <Text style={styles.cancelText}>Cancel</Text>
+                <Pressable onPress={onCancel} style={styles.manualButton} disabled={isProcessing}>
+                    <Ionicons name="create-outline" size={20} color={COLORS.textPrimary} />
+                    <Text style={styles.manualButtonText}>Saisie manuelle</Text>
                 </Pressable>
-
             </View>
         </Animated.View>
     );
@@ -161,113 +124,109 @@ const styles = StyleSheet.create({
     overlay: {
         ...StyleSheet.absoluteFillObject,
         zIndex: 50,
-        justifyContent: 'center',
+        backgroundColor: COLORS.background,
+    },
+    header: {
+        backgroundColor: COLORS.textPrimary,
+        paddingHorizontal: SPACING.xl,
+        paddingTop: SPACING.section,
+        paddingBottom: SPACING.xxl,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    headerKicker: {
+        ...TYPOGRAPHY.labelUppercase,
+        color: COLORS.accent,
+        marginBottom: SPACING.xs,
+    },
+    headerTitle: {
+        ...TYPOGRAPHY.display,
+        color: COLORS.surface,
+    },
+    closeButton: {
+        width: 40,
+        height: 40,
+        borderRadius: RADIUS.md,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.18)',
         alignItems: 'center',
-    },
-    glowContainer: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        overflow: 'hidden',
-    },
-    glowBlob: {
-        width: width,
-        height: width,
-        borderRadius: width / 2,
-        backgroundColor: 'rgba(218, 242, 44, 0.15)',
-        position: 'absolute',
-        top: '20%',
-        left: 0,
-        filter: 'blur(60px)', // Works on Web, on Native needs image or SVG blur. 
-        // For Native simple implementation:
-        shadowColor: '#DAF22C',
-        shadowOpacity: 0.5,
-        shadowRadius: 100,
-        elevation: 20
+        justifyContent: 'center',
     },
     content: {
+        flex: 1,
+        padding: SPACING.xl,
+        justifyContent: 'center',
+    },
+    panel: {
+        backgroundColor: COLORS.surface,
+        borderRadius: RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        padding: SPACING.xxl,
         alignItems: 'center',
+    },
+    meterTrack: {
         width: '100%',
-        padding: 32,
+        height: 8,
+        borderRadius: RADIUS.sm,
+        backgroundColor: COLORS.background,
+        overflow: 'hidden',
+        marginBottom: SPACING.xxl,
     },
-    title: {
-        color: '#FFFFFF',
-        fontSize: 24,
-        fontWeight: '700',
-        marginBottom: 8,
-        letterSpacing: 0.5,
+    meterFill: {
+        width: '100%',
+        height: '100%',
+        backgroundColor: COLORS.accent,
     },
-    subtitle: {
-        color: '#94A3B8',
-        fontSize: 16,
-        marginBottom: 60,
-        fontFamily: 'System', // Monospace font if available would look cool
+    statusText: {
+        ...TYPOGRAPHY.heading,
+        color: COLORS.textPrimary,
+        textAlign: 'center',
     },
-    orbContainer: {
-        width: 200,
-        height: 200,
+    helperText: {
+        ...TYPOGRAPHY.body,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        marginTop: SPACING.sm,
+        marginBottom: SPACING.xxl,
+    },
+    recordButton: {
+        width: 104,
+        height: 104,
+        borderRadius: RADIUS.lg,
+        backgroundColor: COLORS.accent,
+        alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: COLORS.accent,
+    },
+    recordButtonActive: {
+        backgroundColor: COLORS.signalRed,
+        borderColor: COLORS.signalRed,
+    },
+    recordButtonDisabled: {
+        opacity: 0.7,
+    },
+    actionLabel: {
+        ...TYPOGRAPHY.labelUppercase,
+        color: COLORS.textSecondary,
+        marginTop: SPACING.md,
+    },
+    manualButton: {
+        height: 52,
+        borderRadius: RADIUS.md,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.surface,
+        flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 80,
-    },
-    orbGlow: {
-        position: 'absolute',
-        width: 120,
-        height: 120,
-        borderRadius: 60,
-        backgroundColor: 'rgba(218, 242, 44, 0.4)',
-        shadowColor: '#DAF22C',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.8,
-        shadowRadius: 40,
-        elevation: 30, // Strong Android Glow
-    },
-    mainButton: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        backgroundColor: '#DAF22C',
         justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 10,
-        shadowColor: '#DAF22C',
-        shadowOpacity: 0.5,
-        shadowRadius: 20,
-        elevation: 10,
+        gap: SPACING.sm,
+        marginTop: SPACING.lg,
     },
-    recordingButton: {
-        backgroundColor: '#EF4444', // Red for stop
-        shadowColor: '#EF4444',
+    manualButtonText: {
+        ...TYPOGRAPHY.bodyBold,
+        color: COLORS.textPrimary,
     },
-    loadingRing: {
-        position: 'absolute',
-        width: 140,
-        height: 140,
-        borderRadius: 70,
-        borderWidth: 4,
-        borderColor: 'transparent',
-        borderTopColor: '#DAF22C',
-        borderRightColor: 'rgba(218, 242, 44, 0.5)',
-        zIndex: 5,
-    },
-    cancelButton: {
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 8,
-        opacity: 0.8,
-    },
-    cancelIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    cancelText: {
-        color: '#FFFFFF',
-        fontSize: 14,
-    }
 });

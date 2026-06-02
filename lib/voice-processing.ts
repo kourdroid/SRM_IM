@@ -48,9 +48,9 @@ export async function processVoiceRecording(
     audioUri: string,
     userId: string
 ): Promise<VoiceProcessingResult> {
-    console.log('[VoiceProcessing] === START ===');
-    console.log('[VoiceProcessing] Audio URI:', audioUri);
-    console.log('[VoiceProcessing] User ID:', userId);
+    debugLog('[VoiceProcessing] === START ===');
+    debugLog('[VoiceProcessing] Audio URI:', audioUri);
+    debugLog('[VoiceProcessing] User ID:', userId);
 
     // 1. Build FormData payload
     const formData = new FormData();
@@ -60,28 +60,28 @@ export async function processVoiceRecording(
         name: `recording_${Date.now()}.m4a`,
     } as unknown as Blob);
 
-    console.log('[VoiceProcessing] FormData created');
+    debugLog('[VoiceProcessing] FormData created');
 
     // 2. Get the current session for auth header
     const { data: { session } } = await supabase.auth.getSession();
 
     if (!session) {
-        console.error('[VoiceProcessing] No active session found');
+        debugLog('[VoiceProcessing] No active session found');
         throw new Error('User is not authenticated');
     }
 
-    console.log('[VoiceProcessing] Session retrieved, user:', session.user.id);
+    debugLog('[VoiceProcessing] Session retrieved, user:', session.user.id);
 
     // 3. Call Edge Function
     const functionUrl = process.env.EXPO_PUBLIC_VOICE_FUNCTION_URL;
 
     if (!functionUrl) {
-        console.error('[VoiceProcessing] EXPO_PUBLIC_VOICE_FUNCTION_URL not set');
+        debugLog('[VoiceProcessing] EXPO_PUBLIC_VOICE_FUNCTION_URL not set');
         throw new Error('EXPO_PUBLIC_VOICE_FUNCTION_URL is not configured');
     }
 
-    console.log('[VoiceProcessing] Function URL:', functionUrl);
-    console.log('[VoiceProcessing] Sending audio to Edge Function...');
+    debugLog('[VoiceProcessing] Function URL:', functionUrl);
+    debugLog('[VoiceProcessing] Sending audio to Edge Function...');
     const start = performance.now();
 
     try {
@@ -95,14 +95,14 @@ export async function processVoiceRecording(
         });
 
         const duration = Math.round(performance.now() - start);
-        console.log(`[VoiceProcessing] Response received in ${duration}ms`);
-        console.log(`[VoiceProcessing] Response status: ${response.status}`);
-        console.log(`[VoiceProcessing] Response headers:`, JSON.stringify(Object.fromEntries(response.headers.entries())));
+        debugLog(`[VoiceProcessing] Response received in ${duration}ms`);
+        debugLog(`[VoiceProcessing] Response status: ${response.status}`);
+        debugLog(`[VoiceProcessing] Response headers:`, JSON.stringify(Object.fromEntries(response.headers.entries())));
 
         // 4. Handle errors
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('[VoiceProcessing] Error response body:', errorText);
+            debugLog('[VoiceProcessing] Error response body:', errorText);
 
             let errorData;
             try {
@@ -111,27 +111,33 @@ export async function processVoiceRecording(
                 errorData = { error: errorText || 'Unknown error' };
             }
 
-            console.error('[VoiceProcessing] Parsed error:', errorData);
+            debugLog('[VoiceProcessing] Parsed error:', errorData);
             throw new Error(errorData.error || `HTTP ${response.status}`);
         }
 
         // 5. Parse response
         const responseText = await response.text();
-        console.log('[VoiceProcessing] Response body:', responseText);
+        debugLog('[VoiceProcessing] Response body:', responseText);
 
         const result: VoiceProcessingResponse = JSON.parse(responseText);
 
         if (!result.output) {
-            console.error('[VoiceProcessing] Invalid response structure:', result);
+            debugLog('[VoiceProcessing] Invalid response structure:', result);
             throw new Error('Invalid response from voice processing service');
         }
 
-        console.log('[VoiceProcessing] Successfully extracted incident data');
-        console.log('[VoiceProcessing] === END ===');
+        debugLog('[VoiceProcessing] Successfully extracted incident data');
+        debugLog('[VoiceProcessing] === END ===');
         return result.output;
     } catch (error) {
-        console.error('[VoiceProcessing] Fetch error:', error);
-        console.error('[VoiceProcessing] Error details:', JSON.stringify(error, null, 2));
+        debugLog('[VoiceProcessing] Fetch error:', error);
+        debugLog('[VoiceProcessing] Error details:', JSON.stringify(error, null, 2));
         throw error;
+    }
+}
+
+function debugLog(...args: unknown[]): void {
+    if (__DEV__) {
+        console.log(...args);
     }
 }

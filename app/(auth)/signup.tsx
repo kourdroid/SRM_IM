@@ -1,5 +1,5 @@
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
-import { supabase } from '@/lib/supabase';
+import { supabase, toSupabaseUserMessage } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
@@ -36,27 +36,32 @@ export default function Signup() {
     }
 
     setLoading(true);
-    const { data: { session, user }, error } = await supabase.auth.signUp({ email, password });
+    try {
+      const { data: { session, user }, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name.trim(),
+            role: 'field',
+          },
+        },
+      });
 
-    if (error) {
-      Alert.alert('Erreur', error.message);
-    } else if (user) {
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .insert([{ id: user.id, name: name.trim(), role: 'field' }]);
-
-      if (profileError) {
-        console.error('Error creating user profile:', profileError);
-        Alert.alert('Erreur', 'Compte créé mais la configuration du profil a échoué.');
-      } else {
+      if (error) {
+        Alert.alert('Erreur', toSupabaseUserMessage(error));
+      } else if (user) {
         if (!session) {
           Alert.alert('Vérifiez votre e-mail', 'Un lien de confirmation vous a été envoyé.');
         } else {
           router.replace('/');
         }
       }
+    } catch (error) {
+      Alert.alert('Erreur', toSupabaseUserMessage(error));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
@@ -117,7 +122,7 @@ export default function Signup() {
           {loading ? (
             <ActivityIndicator color={COLORS.textPrimary} />
           ) : (
-            <Text style={styles.primaryBtnText}>S'inscrire</Text>
+            <Text style={styles.primaryBtnText}>S&apos;inscrire</Text>
           )}
         </TouchableOpacity>
 

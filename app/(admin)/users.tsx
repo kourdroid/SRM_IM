@@ -1,4 +1,5 @@
-import { UserAdminService, type UserProfile } from '@/src/core/services/userAdminService';
+import { SrmActionButton, SrmEmptyState, SrmScreenHeader, SrmStatusBadge } from '@/components/ui/srm';
+import { UserAdminService, type UserProfile, type UserRole } from '@/src/core/services/userAdminService';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
@@ -9,7 +10,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -31,16 +31,44 @@ const COLORS = {
   white: '#FFFFFF',
 } as const;
 
+const ROLE_OPTIONS: {
+  role: UserRole;
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  {
+    role: 'field',
+    label: 'Terrain',
+    description: 'Crée et synchronise les incidents depuis le terrain.',
+    icon: 'construct',
+  },
+  {
+    role: 'director',
+    label: 'Directeur',
+    description: 'Consulte le tableau de bord et les incidents en lecture seule.',
+    icon: 'eye',
+  },
+  {
+    role: 'admin',
+    label: 'Administrateur',
+    description: 'Gère les incidents, utilisateurs, communes et paramètres.',
+    icon: 'shield-checkmark',
+  },
+];
+
 export default function UserManagement() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rolePickerProfile, setRolePickerProfile] = useState<UserProfile | null>(null);
+  const [roleUpdating, setRoleUpdating] = useState(false);
   
   // Create user modal state
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState<'field' | 'admin'>('field');
+  const [newRole, setNewRole] = useState<UserRole>('field');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => { loadProfiles(); }, []);
@@ -56,18 +84,23 @@ export default function UserManagement() {
     }
   };
 
-  const toggleRole = async (profile: UserProfile, value: boolean) => {
-    const newRole = value ? 'admin' : 'field';
+  const updateRole = async (profile: UserProfile, nextRole: UserRole) => {
+    if (profile.role === nextRole) return;
+    setRoleUpdating(true);
     try {
-      await UserAdminService.updateUserRole({ id: profile.id, role: newRole });
-      setProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, role: newRole } : p));
-      Alert.alert('Succès', `Rôle de ${profile.name || 'l\'utilisateur'} mis à jour à: ${newRole}`);
-    } catch (e: any) {
-      if (e.message?.includes('NETWORK_OFFLINE')) {
+      await UserAdminService.updateUserRole({ id: profile.id, role: nextRole });
+      setProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, role: nextRole } : p));
+      setRolePickerProfile(null);
+      Alert.alert('Succès', `Rôle de ${profile.name || 'l\'utilisateur'} mis à jour.`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes('NETWORK_OFFLINE')) {
         Alert.alert('Hors ligne', 'Les mutations administrateur requièrent une connexion active.');
       } else {
-        Alert.alert('Erreur de mise à jour', String(e));
+        Alert.alert('Erreur de mise à jour', message);
       }
+    } finally {
+      setRoleUpdating(false);
     }
   };
 
@@ -123,8 +156,8 @@ export default function UserManagement() {
       setNewName('');
       setNewRole('field');
       Alert.alert('Succès', `Compte créé avec succès pour ${newName}.`);
-    } catch (e: any) {
-      Alert.alert('Erreur lors de la création', e.message || String(e));
+    } catch (e: unknown) {
+      Alert.alert('Erreur lors de la création', e instanceof Error ? e.message : String(e));
     } finally {
       setCreating(false);
     }
@@ -147,8 +180,6 @@ export default function UserManagement() {
   };
 
   const renderItem = ({ item }: { item: UserProfile }) => {
-    const isAdmin = item.role === 'admin';
-
     return (
       <View style={styles.card}>
         {/* Avatar */}
@@ -166,17 +197,17 @@ export default function UserManagement() {
           </Text>
         </View>
 
-        {/* Role Switch */}
+        {/* Role */}
         <View style={styles.roleToggleSection}>
-          <Text style={[styles.roleLabel, isAdmin && styles.roleLabelActive]}>
-            {isAdmin ? 'ADMIN' : 'TERRAIN'}
-          </Text>
-          <Switch
-            value={isAdmin}
-            onValueChange={(val) => toggleRole(item, val)}
-            trackColor={{ false: '#D1D5DB', true: COLORS.primaryDark }}
-            thumbColor={COLORS.white}
-          />
+          <SrmStatusBadge label={getRoleLabel(item.role)} variant={getRoleVariant(item.role)} />
+          <TouchableOpacity
+            style={styles.changeRoleButton}
+            onPress={() => setRolePickerProfile(item)}
+            activeOpacity={0.78}
+          >
+            <Ionicons name="swap-horizontal" size={14} color={COLORS.textSecondary} />
+            <Text style={styles.changeRoleText}>Changer</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Delete action */}
@@ -202,23 +233,19 @@ export default function UserManagement() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Gestion d'Équipe</Text>
-          <Text style={styles.headerSubtitle}>
-            {profiles.length} membre{profiles.length > 1 ? 's' : ''} actif{profiles.length > 1 ? 's' : ''}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowAddModal(true)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="add" size={20} color={COLORS.primaryDark} />
-          <Text style={styles.addButtonText}>Nouveau</Text>
-        </TouchableOpacity>
-      </View>
+      <SrmScreenHeader
+        kicker="ADMINISTRATION"
+        title="Utilisateurs"
+        subtitle={`${profiles.length} membre${profiles.length > 1 ? 's' : ''} actif${profiles.length > 1 ? 's' : ''}`}
+        rightSlot={
+          <SrmActionButton
+            label="Nouveau"
+            icon="add"
+            onPress={() => setShowAddModal(true)}
+            style={styles.headerButton}
+          />
+        }
+      />
 
       <FlatList
         data={profiles}
@@ -227,23 +254,11 @@ export default function UserManagement() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={{
-              width: 72,
-              height: 72,
-              borderRadius: 36,
-              backgroundColor: '#EFF6FF',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: 16,
-            }}>
-              <Ionicons name="people-outline" size={36} color={COLORS.statBlue} />
-            </View>
-            <Text style={[styles.emptyText, { marginBottom: 8 }]}>Aucun utilisateur enregistré</Text>
-            <Text style={{ color: COLORS.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
-              Appuyez sur + pour créer{'\n'}un compte technicien.
-            </Text>
-          </View>
+          <SrmEmptyState
+            icon="people-outline"
+            title="Aucun utilisateur enregistré"
+            message="Créez un compte technicien pour commencer."
+          />
         }
       />
 
@@ -300,50 +315,21 @@ export default function UserManagement() {
                 editable={!creating}
               />
 
-              {/* Role toggle */}
-              <Text style={styles.inputLabel}>Rôle de l'utilisateur</Text>
+              {/* Role selector */}
+              <Text style={styles.inputLabel}>Rôle de l&apos;utilisateur</Text>
               <View style={styles.roleSelectContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.roleOptionBtn,
-                    newRole === 'field' && styles.roleOptionBtnActive
-                  ]}
-                  onPress={() => setNewRole('field')}
-                  disabled={creating}
-                >
-                  <Ionicons
-                    name="construct"
-                    size={18}
-                    color={newRole === 'field' ? COLORS.primaryDark : COLORS.textSecondary}
+                {ROLE_OPTIONS.map(option => (
+                  <RoleOption
+                    key={option.role}
+                    role={option.role}
+                    activeRole={newRole}
+                    label={option.label}
+                    description={option.description}
+                    icon={option.icon}
+                    disabled={creating}
+                    onPress={setNewRole}
                   />
-                  <Text style={[
-                    styles.roleOptionText,
-                    newRole === 'field' && styles.roleOptionTextActive
-                  ]}>
-                    Agent Terrain
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.roleOptionBtn,
-                    newRole === 'admin' && styles.roleOptionBtnActive
-                  ]}
-                  onPress={() => setNewRole('admin')}
-                  disabled={creating}
-                >
-                  <Ionicons
-                    name="shield-checkmark"
-                    size={18}
-                    color={newRole === 'admin' ? COLORS.primaryDark : COLORS.textSecondary}
-                  />
-                  <Text style={[
-                    styles.roleOptionText,
-                    newRole === 'admin' && styles.roleOptionTextActive
-                  ]}>
-                    Administrateur
-                  </Text>
-                </TouchableOpacity>
+                ))}
               </View>
 
               <View style={{ height: 24 }} />
@@ -376,8 +362,107 @@ export default function UserManagement() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={rolePickerProfile !== null}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => !roleUpdating && setRolePickerProfile(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.roleSheet}>
+            <View style={styles.modalHeader}>
+              <View style={styles.roleSheetTitleBlock}>
+                <Text style={styles.modalTitle}>Changer le rôle</Text>
+                <Text style={styles.roleSheetSubtitle} numberOfLines={1}>
+                  {rolePickerProfile?.name || rolePickerProfile?.email || 'Utilisateur'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setRolePickerProfile(null)}
+                disabled={roleUpdating}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={22} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.roleSheetBody}>
+              {rolePickerProfile ? ROLE_OPTIONS.map(option => (
+                <RoleOption
+                  key={option.role}
+                  role={option.role}
+                  activeRole={rolePickerProfile.role}
+                  label={option.label}
+                  description={option.description}
+                  icon={option.icon}
+                  disabled={roleUpdating}
+                  onPress={role => updateRole(rolePickerProfile, role)}
+                />
+              )) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
+}
+
+function RoleOption({
+  role,
+  activeRole,
+  label,
+  description,
+  icon,
+  disabled,
+  onPress,
+}: {
+  role: UserRole;
+  activeRole: UserRole;
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  disabled: boolean;
+  onPress: (role: UserRole) => void;
+}) {
+  const active = role === activeRole;
+  return (
+    <TouchableOpacity
+      style={[styles.roleOptionBtn, active && styles.roleOptionBtnActive]}
+      onPress={() => onPress(role)}
+      disabled={disabled}
+      activeOpacity={0.78}
+    >
+      <View style={[styles.roleOptionIcon, active && styles.roleOptionIconActive]}>
+        <Ionicons
+          name={icon}
+          size={19}
+          color={active ? COLORS.primaryDark : COLORS.textSecondary}
+        />
+      </View>
+      <View style={styles.roleOptionCopy}>
+        <Text style={[styles.roleOptionText, active && styles.roleOptionTextActive]}>
+          {label}
+        </Text>
+        <Text style={styles.roleOptionDescription}>{description}</Text>
+      </View>
+      {active ? (
+        <Ionicons name="checkmark-circle" size={22} color={COLORS.primaryDark} />
+      ) : (
+        <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function getRoleLabel(role: UserRole): string {
+  if (role === 'admin') return 'ADMIN';
+  if (role === 'director') return 'DIRECTEUR';
+  return 'TERRAIN';
+}
+
+function getRoleVariant(role: UserRole): 'neutral' | 'info' {
+  return role === 'field' ? 'neutral' : 'info';
 }
 
 // ─── Styles ────────────────────────────────────────────────────────
@@ -385,6 +470,10 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  headerButton: {
+    width: 112,
+    height: 42,
   },
 
   // ── Header ──
@@ -498,6 +587,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
+    gap: 6,
   },
 
   roleLabel: {
@@ -510,6 +600,24 @@ const styles = StyleSheet.create({
 
   roleLabelActive: {
     color: COLORS.primaryDark,
+  },
+
+  changeRoleButton: {
+    height: 28,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+
+  changeRoleText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
   },
 
   deleteButton: {
@@ -581,6 +689,15 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
 
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   modalForm: {
     padding: 20,
   },
@@ -609,37 +726,84 @@ const styles = StyleSheet.create({
   },
 
   roleSelectContainer: {
-    flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     marginTop: 4,
   },
 
   roleOptionBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F3F4F6',
+    gap: 12,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    paddingVertical: 12,
+    padding: 12,
     borderRadius: 10,
   },
 
   roleOptionBtnActive: {
-    backgroundColor: COLORS.accent,
+    backgroundColor: '#F7FEE7',
     borderColor: COLORS.accent,
   },
 
+  roleOptionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  roleOptionIconActive: {
+    backgroundColor: COLORS.accent,
+  },
+
+  roleOptionCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+
   roleOptionText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
   },
 
   roleOptionTextActive: {
     color: COLORS.primaryDark,
+  },
+
+  roleOptionDescription: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+
+  roleSheet: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+
+  roleSheetTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  roleSheetSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+
+  roleSheetBody: {
+    padding: 20,
+    gap: 10,
   },
 
   modalFooter: {

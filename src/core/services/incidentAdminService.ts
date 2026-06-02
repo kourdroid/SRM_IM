@@ -5,6 +5,7 @@ import { AdminIncidentUpdateSchema, type AdminIncidentUpdate } from '../entities
 export interface Incident {
     id: string;
     remote_id?: string;
+    title?: string;
     type: 'BT' | 'MT';
     date: string;
     village: string;
@@ -19,8 +20,13 @@ export interface Incident {
     reclamation_by?: string;
     created_by: string;
     created_by_name?: string;
+    closed_by?: string | null;
+    closed_by_name?: string | null;
+    closed_at?: string | null;
     created_at: string;
     updated_at: string;
+    latitude?: number | null;
+    longitude?: number | null;
     media_urls?: string[];
 }
 
@@ -32,7 +38,60 @@ export interface IncidentFilters {
     startDate?: string;
     endDate?: string;
     search?: string;
+    agentId?: string;
+    hasGps?: boolean;
+    hasMedia?: boolean;
 }
+
+type IncidentListRecord = {
+    id: string;
+    title: string | null;
+    type: 'BT' | 'MT';
+    date: string;
+    village: string;
+    status: 'open' | 'closed';
+    incident_type: string;
+    commune_id: string;
+    communes?: { name: string | null } | { name: string | null }[] | null;
+    equipment_used: string | null;
+    description: string | null;
+    reclamation: boolean | number | null;
+    reclamation_name: string | null;
+    reclamation_by: string | null;
+    created_by: string;
+    closed_by: string | null;
+    closed_at: string | null;
+    created_at: string;
+    updated_at: string;
+    latitude: number | null;
+    longitude: number | null;
+    media_urls: unknown;
+};
+
+const INCIDENT_LIST_COLUMNS = `
+    id,
+    title,
+    type,
+    date,
+    village,
+    status,
+    incident_type,
+    commune_id,
+    equipment_used,
+    description,
+    reclamation,
+    reclamation_name,
+    reclamation_by,
+    created_by,
+    closed_by,
+    closed_at,
+    created_at,
+    updated_at,
+    latitude,
+    longitude,
+    media_urls,
+    communes(name)
+`;
 
 export const IncidentAdminService = {
     /**
@@ -41,7 +100,7 @@ export const IncidentAdminService = {
     async getIncidents(limit = 20, lastCreatedAt?: string, filters?: IncidentFilters): Promise<Incident[]> {
         let query = supabase
             .from('incidents')
-            .select('*, communes(name)')
+            .select(INCIDENT_LIST_COLUMNS)
             .order('created_at', { ascending: false })
             .limit(limit);
 
@@ -62,6 +121,19 @@ export const IncidentAdminService = {
             if (filters.reclamation !== undefined) {
                 query = query.eq('reclamation', filters.reclamation);
             }
+            if (filters.agentId && filters.agentId !== 'all') {
+                query = query.eq('created_by', filters.agentId);
+            }
+            if (filters.hasGps === true) {
+                query = query.not('latitude', 'is', null).not('longitude', 'is', null);
+            } else if (filters.hasGps === false) {
+                query = query.or('latitude.is.null,longitude.is.null');
+            }
+            if (filters.hasMedia === true) {
+                query = query.not('media_urls', 'eq', '{}');
+            } else if (filters.hasMedia === false) {
+                query = query.or('media_urls.is.null,media_urls.eq.{}');
+            }
             if (filters.startDate) {
                 query = query.gte('created_at', filters.startDate);
             }
@@ -79,11 +151,13 @@ export const IncidentAdminService = {
         const { data, error } = await query;
         if (error) throw new Error(`Fetch incidents failed: ${error.message}`);
 
-        const incidents = (data || []) as any[];
+        const incidents = (data || []) as unknown as IncidentListRecord[];
 
         // Map commune name and profiles
         if (incidents.length > 0) {
-            const userIds = Array.from(new Set(incidents.map(i => i.created_by).filter(Boolean)));
+            const userIds = Array.from(new Set(
+                incidents.flatMap(i => [i.created_by, i.closed_by]).filter(Boolean)
+            ));
             let profileMap = new Map<string, string>();
             if (userIds.length > 0) {
                 const { data: profiles } = await supabase
@@ -98,23 +172,29 @@ export const IncidentAdminService = {
 
             return incidents.map(item => ({
                 id: item.id,
+                title: item.title || undefined,
                 type: item.type,
                 date: item.date,
                 village: item.village,
                 status: item.status,
                 incident_type: item.incident_type,
                 commune_id: item.commune_id,
-                commune_name: item.communes?.name || 'Commune Inconnue',
-                equipment_used: item.equipment_used,
+                commune_name: getEmbeddedCommuneName(item.communes),
+                equipment_used: item.equipment_used || '',
                 description: item.description || '',
                 reclamation: item.reclamation === true || item.reclamation === 1,
-                reclamation_name: item.reclamation_name,
-                reclamation_by: item.reclamation_by,
+                reclamation_name: item.reclamation_name || undefined,
+                reclamation_by: item.reclamation_by || undefined,
                 created_by: item.created_by,
                 created_by_name: profileMap.get(item.created_by) || 'Anonymous User',
+                closed_by: item.closed_by,
+                closed_by_name: item.closed_by ? profileMap.get(item.closed_by) || 'Utilisateur inconnu' : null,
+                closed_at: item.closed_at,
                 created_at: item.created_at,
                 updated_at: item.updated_at,
-                media_urls: item.media_urls || []
+                latitude: item.latitude ?? null,
+                longitude: item.longitude ?? null,
+                media_urls: parseMediaUrls(item.media_urls)
             }));
         }
 
@@ -142,18 +222,26 @@ export const IncidentAdminService = {
         }
 
         // 3. Online mutate
-        const updateData: any = { status: validPayload.status };
-        if (validPayload.status === 'closed') {
-            updateData.closed_at = new Date().toISOString();
-        } else {
-            updateData.closed_at = null;
-        }
-
         const { error } = await supabase
             .from('incidents')
-            .update(updateData)
+            .update({ status: validPayload.status })
             .eq('id', validPayload.id);
 
         if (error) throw new Error(`Mutation failed: ${error.message}`);
     }
 };
+
+function getEmbeddedCommuneName(
+    value: IncidentListRecord['communes']
+): string {
+    if (Array.isArray(value)) {
+        return value[0]?.name || 'Commune Inconnue';
+    }
+    return value?.name || 'Commune Inconnue';
+}
+
+function parseMediaUrls(value: unknown): string[] {
+    return Array.isArray(value)
+        ? value.filter((url): url is string => typeof url === 'string')
+        : [];
+}

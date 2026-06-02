@@ -11,6 +11,7 @@ import type { CreateIncidentInput, IncidentFromServer, IncidentStatus } from './
 
 interface IncidentRow {
     id: number;
+    client_id: string;
     remote_id: string | null;
     type: 'BT' | 'MT';
     date: string;
@@ -26,6 +27,10 @@ interface IncidentRow {
     created_by: string;
     latitude: number | null;
     longitude: number | null;
+    gps_accuracy: number | null;
+    media_urls: string | null;
+    sync_status: 'pending' | 'syncing' | 'synced' | 'failed';
+    sync_error: string | null;
     synced: number;
     created_at: string;
     updated_at: string;
@@ -84,13 +89,15 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
     }
 
     async create(input: CreateIncidentInput, createdBy: string): Promise<number> {
+        const clientId = `incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
         const result = await this.db.runAsync(
             `INSERT INTO incidents (
-        type, date, village, incident_type, commune_id, equipment_used,
+        client_id, type, date, village, incident_type, commune_id, equipment_used,
         description, reclamation, reclamation_name, reclamation_by, 
-        created_by, synced
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        created_by, media_urls, sync_status, synced
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'pending', 0)`,
             [
+                clientId,
                 input.type,
                 input.date,
                 input.village,
@@ -109,7 +116,9 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
 
     async updateStatus(id: number, status: IncidentStatus): Promise<void> {
         await this.db.runAsync(
-            'UPDATE incidents SET status = ?, synced = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            `UPDATE incidents
+             SET status = ?, synced = 0, sync_status = 'pending', sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
             [status, id]
         );
     }
@@ -118,26 +127,33 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
         if (ids.length === 0) return;
         const placeholders = ids.map(() => '?').join(',');
         await this.db.runAsync(
-            `UPDATE incidents SET synced = 1 WHERE id IN (${placeholders})`,
+            `UPDATE incidents SET synced = 1, sync_status = 'synced', sync_error = NULL WHERE id IN (${placeholders})`,
             ids
         );
     }
 
     async upsertFromServer(incidents: IncidentFromServer[]): Promise<void> {
         for (const inc of incidents) {
+            const safeClientId = inc.client_id || `remote-${inc.id}`;
             const safeCommuneId = inc.commune_id || '00000000-0000-0000-0000-000000000000';
             const safeType = (inc.type === 'BT' || inc.type === 'MT') ? inc.type : 'BT';
+            const mediaUrls = JSON.stringify(inc.media_urls || []);
 
             await this.db.runAsync(
                 `INSERT INTO incidents (
-          remote_id, type, date, village, status, incident_type, commune_id,
+          client_id, remote_id, type, date, village, status, incident_type, commune_id,
           equipment_used, description, reclamation, reclamation_name,
-          created_by, latitude, longitude, synced, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          created_by, latitude, longitude, gps_accuracy, media_urls, sync_status, synced, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
         ON CONFLICT(remote_id) DO UPDATE SET
+          client_id = COALESCE(incidents.client_id, excluded.client_id),
           status = excluded.status,
+          media_urls = excluded.media_urls,
+          sync_status = 'synced',
+          sync_error = NULL,
           updated_at = excluded.updated_at`,
                 [
+                    safeClientId,
                     inc.id,
                     safeType,
                     inc.date || new Date().toISOString(),
@@ -152,6 +168,8 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
                     inc.created_by || 'system',
                     inc.latitude ?? null,
                     inc.longitude ?? null,
+                    inc.gps_accuracy ?? null,
+                    mediaUrls,
                     inc.created_at || new Date().toISOString(),
                     inc.updated_at || inc.created_at || new Date().toISOString(),
                 ]
@@ -170,12 +188,12 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
 
         if (invalidRows.length === 0) return 0;
 
-        console.log('Deleting invalid incidents:', invalidRows.map(r => ({ id: r.id, commune_id: r.commune_id })));
-
         const ids = invalidRows.map(r => r.id);
         const placeholders = ids.map(() => '?').join(',');
         await this.db.runAsync(
-            `DELETE FROM incidents WHERE id IN (${placeholders})`,
+            `UPDATE incidents
+             SET sync_status = 'failed', sync_error = 'Commune invalide', updated_at = CURRENT_TIMESTAMP
+             WHERE id IN (${placeholders})`,
             ids
         );
 

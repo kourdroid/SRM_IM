@@ -1,12 +1,14 @@
 import VoiceRecorderOverlay from "@/components/VoiceRecorderOverlay";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,32 +24,44 @@ import {
 import { useSharedValue } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
+import { enqueueCreateIncident, enqueueMediaUpload } from '../../db/syncOperations';
 import { useSync } from '../../hooks/useSync';
+import { persistIncidentMedia } from '../../lib/imageUtils';
 import { processVoiceRecording } from '../../lib/voice-processing';
+import { getIncidentTypesForType } from "../../src/core/constants/incidentTypes";
 
 // Defines
 interface Commune {
   id: number;
   name: string;
-  remote_id: string;
+  remote_id: string | null;
 }
 
 export default function CreateIncidentScreen() {
   const { user } = useAuth();
   const db = useSQLiteContext();
-  const { syncPendingItems } = useSync();
+  const { syncPendingItems } = useSync(user?.id);
 
   // Form State
   const [type, setType] = useState<"BT" | "MT">("BT");
   const [incidentDate, setIncidentDate] = useState(new Date());
-  const [commune, setCommune] = useState(""); // Stores remote_id or ID? Let's store ID or remote_id. The DB schema uses text commune_id.
+  const [commune, setCommune] = useState("");
+  const [communeSearch, setCommuneSearch] = useState("");
   const [communes, setCommunes] = useState<Commune[]>([]);
   const [village, setVillage] = useState("");
+  const [incidentType, setIncidentType] = useState<string>(getIncidentTypesForType("BT")[0]);
   const [equipment, setEquipment] = useState("");
+  const [description, setDescription] = useState("");
   const [isReclamation, setIsReclamation] = useState(false);
   const [reclamationName, setReclamationName] = useState("");
   const [reclamationBy, setReclamationBy] = useState("Administration");
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [gpsLocation, setGpsLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+  } | null>(null);
+  const [isCapturingLocation, setIsCapturingLocation] = useState(false);
 
   // Voice State
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -58,7 +72,6 @@ export default function CreateIncidentScreen() {
 
   // UI State
   const [currentStep, setCurrentStep] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -71,12 +84,16 @@ export default function CreateIncidentScreen() {
       setType("BT");
       setIncidentDate(new Date());
       setCommune("");
+      setCommuneSearch("");
       setVillage("");
+      setIncidentType(getIncidentTypesForType("BT")[0]);
       setEquipment("");
+      setDescription("");
       setIsReclamation(false);
       setReclamationName("");
       setReclamationBy("Administration");
-      setSelectedImage(null);
+      setSelectedImages([]);
+      setGpsLocation(null);
       setVoiceMode(true);
       setRecordingDuration(0);
     }, [])
@@ -86,7 +103,7 @@ export default function CreateIncidentScreen() {
   useEffect(() => {
     const loadCommunes = async () => {
       try {
-        const rows = await db.getAllAsync<Commune>('SELECT * FROM communes');
+        const rows = await db.getAllAsync<Commune>('SELECT * FROM communes ORDER BY name ASC');
         setCommunes(rows);
       } catch (e) {
         console.error("Failed to load communes", e);
@@ -107,7 +124,14 @@ export default function CreateIncidentScreen() {
     } else {
       pulseAnim.setValue(1);
     }
-  }, [isRecording]);
+  }, [isRecording, pulseAnim]);
+
+  useEffect(() => {
+    const incidentTypes = getIncidentTypesForType(type);
+    if (!(incidentTypes as readonly string[]).includes(incidentType)) {
+      setIncidentType(incidentTypes[0]);
+    }
+  }, [type, incidentType]);
 
   async function startRecording() {
     try {
@@ -170,58 +194,58 @@ export default function CreateIncidentScreen() {
       // Process audio using Supabase Edge Function
       const data = await processVoiceRecording(uri, user?.id || 'unknown');
 
-      // Debug: Log what we received
-      console.log('=== Voice AI Response ===');
-      console.log('Full data:', JSON.stringify(data, null, 2));
+      debugLog('=== Voice AI Response ===');
+      debugLog('Full data:', JSON.stringify(data, null, 2));
 
       // Pre-fill form with extracted data
       if (data.type && (data.type === 'BT' || data.type === 'MT')) {
-        console.log('Setting type:', data.type);
+        debugLog('Setting type:', data.type);
         setType(data.type);
       }
       if (data.village) {
-        console.log('Setting village:', data.village);
+        debugLog('Setting village:', data.village);
         setVillage(data.village);
       }
       if (data.commune_id) {
-        console.log('Setting commune:', data.commune_id);
+        debugLog('Setting commune:', data.commune_id);
         setCommune(data.commune_id);
       }
       if (data.equipment_used && data.equipment_used.trim() !== '') {
-        console.log('Setting equipment:', data.equipment_used);
+        debugLog('Setting equipment:', data.equipment_used);
         setEquipment(data.equipment_used);
       }
       if (data.incident_type) {
-        console.log('Incident type from AI:', data.incident_type);
+        debugLog('Incident type from AI:', data.incident_type);
+        setIncidentType(data.incident_type);
         // Use incident_type as equipment if empty
         if (!data.equipment_used || data.equipment_used.trim() === '') {
           setEquipment(data.incident_type);
-          console.log('Using incident_type as equipment:', data.incident_type);
+          debugLog('Using incident_type as equipment:', data.incident_type);
         }
       }
       if (data.reclamation === true || data.reclamation === false) {
-        console.log('Setting reclamation:', data.reclamation);
+        debugLog('Setting reclamation:', data.reclamation);
         setIsReclamation(data.reclamation);
       }
       if (data.reclamation_name) {
-        console.log('Setting reclamation_name:', data.reclamation_name);
+        debugLog('Setting reclamation_name:', data.reclamation_name);
         setReclamationName(data.reclamation_name);
       }
       if (data.reclamation_by) {
-        console.log('Setting reclamation_by:', data.reclamation_by);
+        debugLog('Setting reclamation_by:', data.reclamation_by);
         setReclamationBy(data.reclamation_by);
       }
       if (data.date) {
         try {
           const parsedDate = new Date(data.date);
-          console.log('Setting date:', parsedDate);
+          debugLog('Setting date:', parsedDate);
           setIncidentDate(parsedDate);
-        } catch (e) {
-          console.log('Could not parse date:', data.date);
+        } catch {
+          debugLog('Could not parse date:', data.date);
         }
       }
 
-      console.log('=== Form Fill Complete ===');
+      debugLog('=== Form Fill Complete ===');
 
       Alert.alert(
         "Traitement Terminé",
@@ -244,7 +268,7 @@ export default function CreateIncidentScreen() {
     return `${date.getDate().toString().padStart(2, "0")}/${(date.getMonth() + 1).toString().padStart(2, "0")}/${date.getFullYear()} ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
   };
 
-  const onDateChange = (event: any, selectedDate?: Date) => {
+  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     const currentDate = selectedDate || incidentDate;
     if (event.type === "set") {
       if (showDatePicker) {
@@ -263,84 +287,198 @@ export default function CreateIncidentScreen() {
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsMultipleSelection: true,
       aspect: [4, 3],
       quality: 0.5,
     });
-    if (!result.canceled) setSelectedImage(result.assets[0].uri);
+    if (!result.canceled) {
+      setSelectedImages(prev => [...prev, ...result.assets.map(asset => asset.uri)]);
+    }
   };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') return;
+    if (status !== 'granted') {
+      Alert.alert("Permission refusée", "L'accès à la caméra est nécessaire pour joindre une photo.");
+      return;
+    }
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.5,
     });
-    if (!result.canceled) setSelectedImage(result.assets[0].uri);
+    if (!result.canceled) {
+      setSelectedImages(prev => [...prev, result.assets[0].uri]);
+    }
+  };
+
+  const removeImage = (uri: string) => {
+    setSelectedImages(prev => prev.filter(item => item !== uri));
   };
 
   const handleSubmit = async () => {
-    if (!commune || !village || !equipment) {
+    if (!user?.id) {
+      Alert.alert("Erreur", "Utilisateur non authentifié.");
+      return;
+    }
+
+    if (!communes.some(item => item.remote_id)) {
+      Alert.alert("Communes indisponibles", "Synchronisez les communes avant de créer un incident.");
+      return;
+    }
+
+    if (!commune || !village || !incidentType || !equipment) {
       Alert.alert("Erreur", "Veuillez remplir tous les champs obligatoires");
       return;
     }
 
     try {
       setIsSubmitting(true);
+      const location = gpsLocation || await captureLocation();
+      const clientId = createClientId();
+      let localIncidentId: number | null = null;
+      let mediaPreparationFailed = false;
+
       const incidentData = {
+        client_id: clientId,
         type,
         date: incidentDate.toISOString(),
         village,
         status: 'open',
-        incident_type: 'General', // Default
+        incident_type: incidentType,
         commune_id: commune,
         equipment_used: equipment,
+        description: description.trim() || null,
         reclamation: isReclamation ? 1 : 0,
         reclamation_name: reclamationName || null,
         reclamation_by: reclamationBy,
-        created_by: user?.id || 'unknown',
+        created_by: user.id,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        gps_accuracy: location.accuracy,
+        media_urls: [],
         created_at: new Date().toISOString(),
         synced: 0
       };
 
-      // 1. Insert into incidents
-      const result = await db.runAsync(
-        `INSERT INTO incidents (type, date, village, status, incident_type, commune_id, equipment_used, reclamation, reclamation_name, reclamation_by, created_by, synced, created_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          incidentData.type,
-          incidentData.date,
-          incidentData.village,
-          incidentData.status,
-          incidentData.incident_type,
-          incidentData.commune_id,
-          incidentData.equipment_used,
-          incidentData.reclamation,
-          incidentData.reclamation_name,
-          incidentData.reclamation_by,
-          incidentData.created_by,
-          0, // synced = false
-          incidentData.created_at
-        ]
+      await db.withTransactionAsync(async () => {
+        const result = await db.runAsync(
+          `INSERT INTO incidents (
+            client_id, type, date, village, status, incident_type, commune_id, equipment_used,
+            description, reclamation, reclamation_name, reclamation_by, created_by,
+            latitude, longitude, gps_accuracy, media_urls, sync_status, synced, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+          [
+            incidentData.client_id,
+            incidentData.type,
+            incidentData.date,
+            incidentData.village,
+            incidentData.status,
+            incidentData.incident_type,
+            incidentData.commune_id,
+            incidentData.equipment_used,
+            incidentData.description,
+            incidentData.reclamation,
+            incidentData.reclamation_name,
+            incidentData.reclamation_by,
+            incidentData.created_by,
+            incidentData.latitude,
+            incidentData.longitude,
+            incidentData.gps_accuracy,
+            JSON.stringify(incidentData.media_urls),
+            0,
+            incidentData.created_at
+          ]
+        );
+
+        await enqueueCreateIncident(db, result.lastInsertRowId, clientId);
+        localIncidentId = result.lastInsertRowId;
+      });
+
+      if (selectedImages.length > 0 && localIncidentId !== null) {
+        const incidentId = localIncidentId;
+        try {
+          const localPhotos = await Promise.all(selectedImages.map(async (uri) => {
+            const clientMediaId = createMediaClientId();
+            return {
+              clientMediaId,
+              localUri: await persistIncidentMedia(uri, clientMediaId),
+            };
+          }));
+
+          await db.withTransactionAsync(async () => {
+            await db.runAsync(
+              'UPDATE incidents SET media_urls = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [JSON.stringify(localPhotos.map(photo => photo.localUri)), incidentId]
+            );
+            for (const photo of localPhotos) {
+              await enqueueMediaUpload(db, incidentId, photo.localUri, photo.clientMediaId);
+            }
+          });
+        } catch (mediaError) {
+          mediaPreparationFailed = true;
+          console.error(mediaError);
+        }
+      }
+
+      Alert.alert(
+        "Succès",
+        mediaPreparationFailed
+          ? "Incident enregistré localement. Certaines photos n'ont pas pu être préparées."
+          : "Incident enregistré localement"
       );
 
-      // 2. Add sync action (optional if we had a robust queued system, but syncing usually checks 'synced=0')
-      // For now, syncing logic in 'useSync' likely queries un-synced items.
-
-      Alert.alert("Succès", "Incident enregistré localement");
-
       // Trigger sync
-      syncPendingItems();
+      syncPendingItems({ reason: 'post-create' });
 
       router.replace('/(tabs)/home');
     } catch (error) {
       console.error(error);
-      Alert.alert("Erreur", "Failed to save incident");
+      if (error instanceof Error && error.message === 'LOCATION_PERMISSION_DENIED') {
+        Alert.alert("Localisation requise", "Activez la localisation GPS pour enregistrer l'incident.");
+      } else {
+        Alert.alert("Erreur", "Impossible d'enregistrer l'incident");
+      }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const captureLocation = async (): Promise<{
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+  }> => {
+    setIsCapturingLocation(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        throw new Error("LOCATION_PERMISSION_DENIED");
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        mayShowUserSettingsDialog: true,
+      });
+
+      const nextLocation = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      };
+      setGpsLocation(nextLocation);
+      return nextLocation;
+    } finally {
+      setIsCapturingLocation(false);
+    }
+  };
+
+  const createClientId = () => {
+    return `incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  };
+
+  const createMediaClientId = () => {
+    return `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   };
 
   // --- Metering Shared Value ---
@@ -355,7 +493,7 @@ export default function CreateIncidentScreen() {
   };
 
   const handleCancelRecording = async () => {
-    console.log("Cancelling recording...");
+    debugLog("Cancelling recording...");
     if (recording) {
       try {
         await recording.stopAndUnloadAsync();
@@ -379,6 +517,14 @@ export default function CreateIncidentScreen() {
       durationFormatted={formatDuration(recordingDuration)}
     />
   );
+
+  const filteredCommunes = useMemo(() => {
+    const normalizedSearch = communeSearch.trim().toLowerCase();
+    return communes
+      .filter((c): c is Commune & { remote_id: string } => !!c.remote_id)
+      .filter(c => c.name.toLowerCase().includes(normalizedSearch))
+      .slice(0, 8);
+  }, [communeSearch, communes]);
 
   const renderForm = () => (
     <ScrollView style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
@@ -411,7 +557,7 @@ export default function CreateIncidentScreen() {
           </View>
 
           <View style={{ marginBottom: 24 }}>
-            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Date & Time</Text>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Date et heure</Text>
             <TouchableOpacity
               style={{
                 backgroundColor: '#FFFFFF',
@@ -434,25 +580,51 @@ export default function CreateIncidentScreen() {
 
           <View style={{ marginBottom: 24 }}>
             <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Commune</Text>
-            <View style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: '#D1D5DB',
-              overflow: 'hidden',
-            }}>
-              <Picker
-                selectedValue={commune}
-                onValueChange={setCommune}
-                style={{ color: '#111827', height: 56 }}
-                dropdownIconColor="#DAF22C"
-              >
-                <Picker.Item label="SÉLECTIONNER UNE COMMUNE" value="" color="#9CA3AF" style={{ fontSize: 14 }} />
-                {communes.map((c) => (
-                  <Picker.Item key={c.id} label={c.name} value={c.remote_id} color="black" />
-                ))}
-              </Picker>
-            </View>
+            {communes.length === 0 ? (
+              <View style={{ backgroundColor: '#FEF2F2', borderColor: '#FCA5A5', borderWidth: 1, borderRadius: 8, padding: 16 }}>
+                <Text style={{ color: '#991B1B', fontWeight: '800' }}>Synchronisation des communes requise.</Text>
+              </View>
+            ) : (
+              <>
+                <TextInput
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 8,
+                    padding: 16,
+                    color: '#111827',
+                    fontSize: 16,
+                    fontWeight: '600',
+                    borderWidth: 1,
+                    borderColor: '#D1D5DB',
+                    marginBottom: 8,
+                  }}
+                  value={communeSearch}
+                  onChangeText={setCommuneSearch}
+                  placeholder="Rechercher une commune"
+                  placeholderTextColor="#9CA3AF"
+                />
+                <View style={{ gap: 8 }}>
+                  {filteredCommunes.map((c) => (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => {
+                        setCommune(c.remote_id);
+                        setCommuneSearch(c.name);
+                      }}
+                      style={{
+                        backgroundColor: commune === c.remote_id ? '#DAF22C' : '#FFFFFF',
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: commune === c.remote_id ? '#DAF22C' : '#D1D5DB',
+                        padding: 14,
+                      }}
+                    >
+                      <Text style={{ color: '#111827', fontWeight: '800' }}>{c.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
           </View>
 
           <View style={{ marginBottom: 24 }}>
@@ -471,9 +643,43 @@ export default function CreateIncidentScreen() {
               }}
               value={village}
               onChangeText={setVillage}
-              placeholder="NOM DU VILLAGE"
+              placeholder="Nom du village"
               placeholderTextColor="#52525B"
             />
+          </View>
+
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Position GPS</Text>
+            <TouchableOpacity
+              onPress={captureLocation}
+              disabled={isCapturingLocation}
+              style={{
+                backgroundColor: gpsLocation ? '#F0FDF4' : '#FFFFFF',
+                borderRadius: 8,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: gpsLocation ? '#86EFAC' : '#D1D5DB',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              {isCapturingLocation ? (
+                <ActivityIndicator color="#111827" />
+              ) : (
+                <Ionicons name={gpsLocation ? "location" : "location-outline"} size={24} color={gpsLocation ? '#16A34A' : '#111827'} />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#111827', fontWeight: '900', fontSize: 14 }}>
+                  {gpsLocation ? 'POSITION CAPTURÉE' : 'CAPTURER LA POSITION'}
+                </Text>
+                <Text style={{ color: '#6B7280', fontWeight: '600', fontSize: 12, marginTop: 4 }}>
+                  {gpsLocation
+                    ? `${gpsLocation.latitude.toFixed(6)}, ${gpsLocation.longitude.toFixed(6)}${gpsLocation.accuracy ? ` • ±${Math.round(gpsLocation.accuracy)}m` : ''}`
+                    : 'Obligatoire avant enregistrement'}
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -481,6 +687,28 @@ export default function CreateIncidentScreen() {
       {/* Step 2 */}
       {currentStep === 2 && (
         <View>
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Type d&apos;incident</Text>
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#D1D5DB',
+              overflow: 'hidden',
+            }}>
+              <Picker
+                selectedValue={incidentType}
+                onValueChange={setIncidentType}
+                style={{ color: '#111827', height: 56 }}
+                dropdownIconColor="#DAF22C"
+              >
+                {getIncidentTypesForType(type).map((item) => (
+                  <Picker.Item key={item} label={item} value={item} color="black" />
+                ))}
+              </Picker>
+            </View>
+          </View>
+
           <View style={{ marginBottom: 24 }}>
             <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Matériel Utilisé</Text>
             <TextInput
@@ -497,25 +725,37 @@ export default function CreateIncidentScreen() {
               }}
               value={equipment}
               onChangeText={setEquipment}
-              placeholder="CÂBLE, ISOLATEUR..."
+              placeholder="Câble, isolateur..."
               placeholderTextColor="#9CA3AF"
             />
           </View>
 
           <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Notes</Text>
+            <TextInput
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 8,
+                padding: 16,
+                color: '#111827',
+                fontSize: 16,
+                fontWeight: '500',
+                borderWidth: 1,
+                borderColor: '#D1D5DB',
+                minHeight: 96,
+                textAlignVertical: 'top',
+              }}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Description ou observations"
+              placeholderTextColor="#9CA3AF"
+              multiline
+            />
+          </View>
+
+          <View style={{ marginBottom: 24 }}>
             <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Preuve Visuelle</Text>
-            {selectedImage ? (
-              <View style={{ position: 'relative' }}>
-                <Image source={{ uri: selectedImage }} style={{ width: '100%', height: 220, borderRadius: 8, backgroundColor: '#E5E7EB', borderWidth: 1, borderColor: '#D1D5DB' }} resizeMode="cover" />
-                <TouchableOpacity
-                  style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'white', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB' }}
-                  onPress={() => setSelectedImage(null)}
-                >
-                  <Ionicons name="close" size={20} color="#111827" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: selectedImages.length > 0 ? 12 : 0 }}>
                 <TouchableOpacity
                   style={{
                     flex: 1,
@@ -551,6 +791,20 @@ export default function CreateIncidentScreen() {
                   <Text style={{ color: '#111827', marginTop: 12, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>Galerie</Text>
                 </TouchableOpacity>
               </View>
+            {selectedImages.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {selectedImages.map((uri) => (
+                  <View key={uri} style={{ position: 'relative', marginRight: 10 }}>
+                    <Image source={{ uri }} style={{ width: 116, height: 116, borderRadius: 8, backgroundColor: '#E5E7EB', borderWidth: 1, borderColor: '#D1D5DB' }} resizeMode="cover" />
+                    <TouchableOpacity
+                      style={{ position: 'absolute', top: 6, right: 6, backgroundColor: '#FFFFFF', padding: 6, borderRadius: 6, borderWidth: 1, borderColor: '#D1D5DB' }}
+                      onPress={() => removeImage(uri)}
+                    >
+                      <Ionicons name="close" size={16} color="#111827" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
             )}
           </View>
 
@@ -609,7 +863,7 @@ export default function CreateIncidentScreen() {
                 }}
                 value={reclamationName}
                 onChangeText={setReclamationName}
-                placeholder="NOM DU RÉCLAMANT"
+              placeholder="Nom du réclamant"
                 placeholderTextColor="#9CA3AF"
               />
               <View style={{
@@ -653,8 +907,10 @@ export default function CreateIncidentScreen() {
             { l: 'DATE', v: formatDate(incidentDate) },
             { l: 'VILLAGE', v: village },
             { l: 'COMMUNE', v: communes.find(c => c.remote_id === commune)?.name || commune },
+            { l: 'INCIDENT', v: incidentType },
             { l: 'MATÉRIEL', v: equipment },
-            { l: 'PHOTO', v: selectedImage ? 'PRÉSENTE' : 'ABSENTE' }
+            { l: 'GPS', v: gpsLocation ? 'CAPTURÉE' : 'REQUIS' },
+            { l: 'PHOTOS', v: selectedImages.length > 0 ? `${selectedImages.length}` : 'ABSENTES' }
           ].map((item, i) => (
             <View key={i} style={{
               flexDirection: 'row',
@@ -675,7 +931,7 @@ export default function CreateIncidentScreen() {
 
   if (voiceMode) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#191820' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#111827' }}>
         {renderVoiceMode()}
       </SafeAreaView>
     );
@@ -776,4 +1032,10 @@ export default function CreateIncidentScreen() {
       )}
     </SafeAreaView>
   );
+}
+
+function debugLog(...args: unknown[]): void {
+  if (__DEV__) {
+    console.log(...args);
+  }
 }

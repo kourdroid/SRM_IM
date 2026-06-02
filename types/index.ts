@@ -7,7 +7,7 @@
 // USER & AUTH TYPES
 // ============================================================
 
-export type UserRole = 'admin' | 'field';
+export type UserRole = 'admin' | 'field' | 'director';
 
 export type UserProfile = {
     id: string;

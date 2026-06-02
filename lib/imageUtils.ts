@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system';
-import { supabase } from './supabase';
+import * as FileSystem from 'expo-file-system/legacy';
+import { supabase, supabaseAnonKey, supabaseUrl } from './supabase';
 
 /**
  * Compresses an image to max 1200px width at 70% quality
@@ -8,6 +8,10 @@ import { supabase } from './supabase';
  */
 export async function compressImage(uri: string): Promise<string> {
   try {
+    if (!FileSystem.documentDirectory) {
+      throw new Error('Document directory is not available on this device.');
+    }
+
     // Ensure persistent directory exists
     const dir = `${FileSystem.documentDirectory}compressed_images/`;
     const dirInfo = await FileSystem.getInfoAsync(dir);
@@ -38,37 +42,79 @@ export async function compressImage(uri: string): Promise<string> {
 }
 
 /**
+ * Copies a picked or captured media file into app-owned persistent storage.
+ * This is intentionally cheap and does not compress; compression happens during sync.
+ */
+export async function persistIncidentMedia(uri: string, clientMediaId: string): Promise<string> {
+  if (!FileSystem.documentDirectory) {
+    throw new Error('Document directory is not available on this device.');
+  }
+
+  const dir = `${FileSystem.documentDirectory}incident_media_pending/`;
+  const dirInfo = await FileSystem.getInfoAsync(dir);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  }
+
+  const destinationPath = `${dir}${clientMediaId}.jpg`;
+  await FileSystem.copyAsync({
+    from: uri,
+    to: destinationPath,
+  });
+
+  return destinationPath;
+}
+
+/**
  * Uploads a local file to Supabase Storage 'incident-media' bucket
  */
 export async function uploadToSupabase(
   localPath: string,
-  incidentId: string
-): Promise<string> {
+  incidentId: string,
+  objectName?: string
+): Promise<{ publicUrl: string; storagePath: string }> {
   try {
-    const fileName = localPath.split('/').pop() || `${Date.now()}.jpg`;
-    const filePath = `incidents/${incidentId}/${fileName}`;
-
-    // Read the local file as a Blob using the native fetch adapter
-    const response = await fetch(localPath);
-    const blob = await response.blob();
-
-    const { data, error } = await supabase.storage
-      .from('incident-media')
-      .upload(filePath, blob, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
-
-    if (error) {
-      throw error;
+    const info = await FileSystem.getInfoAsync(localPath);
+    if (!info.exists) {
+      throw new Error(`Local media file not found: ${localPath}`);
     }
 
-    // Get public URL
+    const uploadPath = await compressImage(localPath);
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+      throw new Error(sessionError?.message || 'User session is required for media upload.');
+    }
+
+    const fileName = objectName || uploadPath.split('/').pop() || `${Date.now()}.jpg`;
+    const filePath = `incidents/${incidentId}/${fileName}`;
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+    const uploadUrl = `${supabaseUrl}/storage/v1/object/incident-media/${encodedPath}`;
+
+    const result = await FileSystem.uploadAsync(uploadUrl, uploadPath, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'image/jpeg',
+        'x-upsert': 'true',
+      },
+    });
+
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`Storage upload failed (${result.status}): ${result.body}`);
+    }
+
     const { data: publicUrlData } = supabase.storage
       .from('incident-media')
       .getPublicUrl(filePath);
 
-    return publicUrlData.publicUrl;
+    return { publicUrl: publicUrlData.publicUrl, storagePath: filePath };
   } catch (error) {
     console.error('Error uploading to Supabase Storage:', error);
     throw error;

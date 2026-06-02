@@ -1,16 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
+import { enqueueStatusUpdate } from '../../db/syncOperations';
 import { useSync } from '../../hooks/useSync';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 
 // Define the incident type mapping to SQLite schema
 interface Incident {
   id: string;
+  client_id?: string;
   type: 'BT' | 'MT';
   date: string;
   village: string;
@@ -22,16 +25,14 @@ interface Incident {
   reclamation_by?: string;
   reclamation_name?: string;
   created_by?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  media_urls?: string | null;
+  sync_status?: 'pending' | 'syncing' | 'synced' | 'failed';
+  sync_error?: string | null;
   created_at?: string;
   synced: number;
 }
-
-// Inline styles to avoid NativeWind race condition
-const styles = StyleSheet.create({
-  modalOverlay: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-});
 
 export default function Home() {
   const { user } = useAuth();
@@ -51,7 +52,7 @@ export default function Home() {
     try {
       const date = new Date(dateString);
       return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch (error) {
+    } catch {
       return 'Date invalide';
     }
   };
@@ -62,7 +63,7 @@ export default function Home() {
       setIsLoading(true);
       const rows = await db.getAllAsync<Incident>(
         'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id]
+        [user?.id ?? '']
       );
       setIncidents(rows);
     } catch (error) {
@@ -70,30 +71,66 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, [db, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchIncidents();
-      syncPendingItems();
-    }, [fetchIncidents])
+      let isActive = true;
+      const refresh = async () => {
+        await fetchIncidents();
+        await syncPendingItems({ reason: 'foreground' });
+        if (isActive) {
+          await fetchIncidents();
+        }
+      };
+
+      void refresh();
+
+      return () => {
+        isActive = false;
+      };
+    }, [fetchIncidents, syncPendingItems])
   );
 
   const handleCloseIncident = async (incidentId: string) => {
     try {
-      await db.runAsync('UPDATE incidents SET status = ?, synced = 0 WHERE id = ?', ['closed', incidentId]);
+      await db.runAsync(
+        `UPDATE incidents
+         SET status = ?, synced = 0, sync_status = 'pending', sync_error = NULL
+         WHERE id = ?`,
+        ['closed', incidentId]
+      );
+      await enqueueStatusUpdate(db, Number(incidentId), 'closed');
       Alert.alert("Succès", "Incident clôturé avec succès");
       setIsModalVisible(false);
-      fetchIncidents();
-      syncPendingItems();
+      await syncPendingItems({ reason: 'manual', forceReferenceData: true });
+      await fetchIncidents();
     } catch (error) {
       console.error(error);
       Alert.alert("Erreur", "Impossible de clôturer l'incident");
     }
   };
 
+  const parseMediaUrls = (value?: string | null) => {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const openIncidentMap = (incident: Incident) => {
+    if (incident.latitude == null || incident.longitude == null) return;
+    const query = `${incident.latitude},${incident.longitude}`;
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  };
+
   const renderIncidentItem = ({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
+    const hasMedia = parseMediaUrls(item.media_urls).length > 0;
+    const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
 
     return (
       <TouchableOpacity
@@ -134,7 +171,7 @@ export default function Home() {
             </Text>
           </View>
           <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase' }}>
-            {item.synced === 0 ? 'EN ATTENTE • ' : ''}
+            {syncStatus === 'pending' ? 'EN ATTENTE • ' : syncStatus === 'failed' ? 'ÉCHEC SYNC • ' : syncStatus === 'syncing' ? 'SYNCHRO • ' : ''}
             {formatIncidentDate(item.date)}
           </Text>
           {item.incident_type ? (
@@ -142,6 +179,17 @@ export default function Home() {
               {item.incident_type}
             </Text>
           ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            {hasMedia ? (
+              <Ionicons name="image-outline" size={14} color={COLORS.textSecondary} />
+            ) : null}
+            {item.latitude != null && item.longitude != null ? (
+              <Ionicons name="location-outline" size={14} color={COLORS.textSecondary} />
+            ) : null}
+            {syncStatus === 'failed' ? (
+              <Ionicons name="warning-outline" size={14} color={COLORS.signalRed} />
+            ) : null}
+          </View>
         </View>
         <View style={{
           paddingHorizontal: SPACING.sm,
@@ -169,39 +217,37 @@ export default function Home() {
         paddingHorizontal: SPACING.xl,
         paddingTop: SPACING.xl,
         paddingBottom: SPACING.xxl,
-        backgroundColor: COLORS.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
+        backgroundColor: COLORS.textPrimary,
         zIndex: 10,
       }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
-            <Text style={{ color: COLORS.textPrimary, fontSize: 22, fontWeight: '900', letterSpacing: 0.5 }}>
+            <Text style={{ color: COLORS.surface, fontSize: 22, fontWeight: '900', letterSpacing: 0.5 }}>
               {user?.email ? user.email.split('@')[0].toUpperCase() : 'AGENT'}
             </Text>
-            <Text style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 4, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>
+            <Text style={{ color: COLORS.accent, fontSize: 12, marginTop: 4, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' }}>
               INCIDENTS TERRAIN
             </Text>
           </View>
           {/* Manual Sync Button */}
           <TouchableOpacity
-            onPress={() => {
-              syncPendingItems();
-              fetchIncidents();
+            onPress={async () => {
+              await syncPendingItems({ reason: 'manual', forceReferenceData: true });
+              await fetchIncidents();
             }}
             style={{
-              backgroundColor: COLORS.background,
+              backgroundColor: 'rgba(255,255,255,0.08)',
               padding: SPACING.md,
               borderRadius: RADIUS.sm,
               borderWidth: 1,
-              borderColor: isSyncing ? COLORS.accent : COLORS.border,
+              borderColor: isSyncing ? COLORS.accent : 'rgba(255,255,255,0.18)',
             }}
             disabled={isSyncing}
           >
             {isSyncing ? (
               <ActivityIndicator size={24} color={COLORS.accent} />
             ) : (
-              <Ionicons name="sync-outline" size={24} color={COLORS.textPrimary} />
+              <Ionicons name="sync-outline" size={24} color={COLORS.surface} />
             )}
           </TouchableOpacity>
         </View>
@@ -220,6 +266,10 @@ export default function Home() {
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            initialNumToRender={8}
+            maxToRenderPerBatch={8}
+            windowSize={7}
+            removeClippedSubviews
             ListEmptyComponent={
               <View style={{
                 flex: 1,
@@ -282,7 +332,13 @@ export default function Home() {
             </View>
 
             {selectedIncident && (
-              <>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {(() => {
+                  const mediaUrls = parseMediaUrls(selectedIncident.media_urls);
+                  const hasLocation = selectedIncident.latitude != null && selectedIncident.longitude != null;
+
+                  return (
+                    <>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: '#6B7280', fontWeight: '900', fontSize: 12, letterSpacing: 1.5, marginBottom: 8, textTransform: 'uppercase' }}>
@@ -341,6 +397,52 @@ export default function Home() {
                   </View>
                 )}
 
+                {hasLocation && (
+                  <TouchableOpacity
+                    onPress={() => openIncidentMap(selectedIncident)}
+                    style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}
+                  >
+                    <Text style={{ color: '#6B7280', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
+                      POSITION GPS
+                    </Text>
+                    <Text style={{ color: '#111827', fontSize: 15, fontWeight: '700' }}>
+                      {selectedIncident.latitude?.toFixed(6)}, {selectedIncident.longitude?.toFixed(6)}
+                    </Text>
+                    <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: '700', marginTop: 6 }}>
+                      Ouvrir dans Google Maps
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {selectedIncident.sync_status === 'failed' && (
+                  <View style={{ padding: 16, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' }}>
+                    <Text style={{ color: '#991B1B', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 6, letterSpacing: 1.5 }}>
+                      ÉCHEC SYNCHRONISATION
+                    </Text>
+                    <Text style={{ color: '#7F1D1D', fontSize: 13, fontWeight: '600' }}>
+                      {selectedIncident.sync_error || 'Erreur inconnue'}
+                    </Text>
+                  </View>
+                )}
+
+                {mediaUrls.length > 0 && (
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={{ color: '#6B7280', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 10, letterSpacing: 1.5 }}>
+                      PHOTO
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {mediaUrls.map((url, index) => (
+                        <Image
+                          key={`${url}-${index}`}
+                          source={{ uri: url }}
+                          style={{ width: 120, height: 120, borderRadius: 8, marginRight: 10, backgroundColor: '#E5E7EB' }}
+                          contentFit="cover"
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
                 <View style={{ flex: 1 }} />
 
                 {/* Actions */}
@@ -366,7 +468,10 @@ export default function Home() {
                     </TouchableOpacity>
                   )}
                 </View>
-              </>
+                    </>
+                  );
+                })()}
+              </ScrollView>
             )}
           </View>
         </View>

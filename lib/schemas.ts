@@ -35,6 +35,7 @@ export type IncidentStatus = z.infer<typeof IncidentStatusSchema>;
  */
 export const IncidentFromServerSchema = z.object({
     id: z.string().uuid(),
+    client_id: z.string().nullable().optional(),
     type: VoltageTypeSchema,
     date: z.string().datetime({ offset: true }).or(z.string()),
     village: z.string().min(1),
@@ -49,6 +50,8 @@ export const IncidentFromServerSchema = z.object({
     created_by: z.string().uuid(),
     latitude: z.number().nullable().optional(),
     longitude: z.number().nullable().optional(),
+    gps_accuracy: z.number().nullable().optional(),
+    media_urls: z.array(z.string()).nullable().optional(),
     created_at: z.string(),
     updated_at: z.string().nullable().optional(),
 });
@@ -127,7 +130,7 @@ export function parseVoiceAIResponse(data: unknown): VoiceAIResponse | null {
 // USER SCHEMAS
 // ============================================================
 
-export const UserRoleSchema = z.enum(['admin', 'field']);
+export const UserRoleSchema = z.enum(['admin', 'field', 'director']);
 export type UserRole = z.infer<typeof UserRoleSchema>;
 
 export const UserProfileSchema = z.object({

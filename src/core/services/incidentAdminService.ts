@@ -72,7 +72,10 @@ export const IncidentAdminService = {
                 query = query.lt('created_at', end.toISOString().split('T')[0]);
             }
             if (filters.search && filters.search.trim() !== '') {
-                query = query.or(`description.ilike.%${filters.search.trim()}%,village.ilike.%${filters.search.trim()}%`);
+                // Security: Prevent PostgREST query injection by removing special characters
+                // PostgREST evaluates .or() strings directly, so unsanitized input allows query manipulation
+                const sanitizedSearch = filters.search.trim().replace(/[,.()]/g, '');
+                query = query.or(`description.ilike.%${sanitizedSearch}%,village.ilike.%${sanitizedSearch}%`);
             }
         }
 

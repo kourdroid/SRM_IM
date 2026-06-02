@@ -1,0 +1,3 @@
+## 2024-05-18 - [React Native FlatList Render Item Optimizations]
+**Learning:** For optimal `FlatList` performance, especially with interactive items, `renderItem` must be wrapped in `useCallback` with all referenced state setters included in the dependency array to satisfy exhaustive-deps and maintain a stable reference across parent component re-renders. Additionally, hoisting pure formatting functions outside the component prevents unnecessary re-evaluations on every render tick.
+**Action:** Always verify `renderItem` functions are memoized and pure helper functions are hoisted when refactoring complex list components.

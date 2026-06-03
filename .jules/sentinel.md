@@ -1,0 +1,4 @@
+## 2024-06-03 - Query Injection in PostgREST `.or()` method
+**Vulnerability:** A query injection vulnerability exists when unsanitized user search input is directly interpolated into a Supabase PostgREST `.or()` query (e.g., `query.or(\`description.ilike.%${input}%\`)`). If the input contains a comma, PostgREST interprets it as an entirely new filter condition.
+**Learning:** Developers often forget that the PostgREST string syntax treats `,`, `.`, and `()` as special operators. Standard SQL parameterized query practices do not automatically protect against this specific OR string injection logic in the Supabase JS client.
+**Prevention:** Always sanitize user input intended for `.or()` clauses by removing or escaping reserved PostgREST characters like `,`, `.`, `(`, and `)` before interpolation.

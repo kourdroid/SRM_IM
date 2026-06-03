@@ -10,6 +10,35 @@ import { enqueueStatusUpdate } from '../../db/syncOperations';
 import { useSync } from '../../hooks/useSync';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 
+// ⚡ Bolt Performance Optimization:
+// Hoisted pure helper functions (formatIncidentDate, parseMediaUrls, openIncidentMap) outside the component scope
+// to prevent unnecessary function re-allocations on every render cycle.
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch {
+    return 'Date invalide';
+  }
+};
+
+const parseMediaUrls = (value?: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const openIncidentMap = (incident: Incident) => {
+  if (incident.latitude == null || incident.longitude == null) return;
+  const query = `${incident.latitude},${incident.longitude}`;
+  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+};
+
 // Define the incident type mapping to SQLite schema
 interface Incident {
   id: string;
@@ -45,17 +74,6 @@ export default function Home() {
   // Modal State
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
-
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch {
-      return 'Date invalide';
-    }
-  };
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async () => {
@@ -111,23 +129,10 @@ export default function Home() {
     }
   };
 
-  const parseMediaUrls = (value?: string | null) => {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const openIncidentMap = (incident: Incident) => {
-    if (incident.latitude == null || incident.longitude == null) return;
-    const query = `${incident.latitude},${incident.longitude}`;
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
-  };
-
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  // ⚡ Bolt Performance Optimization:
+  // Wrapped renderIncidentItem in useCallback to maintain a stable function reference for FlatList,
+  // preventing unnecessary re-renders of list items.
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
     const hasMedia = parseMediaUrls(item.media_urls).length > 0;
     const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
@@ -206,7 +211,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [setSelectedIncident, setIsModalVisible]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>

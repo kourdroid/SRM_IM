@@ -1,0 +1,3 @@
+## 2024-05-24 - Memoize FlatList renderItem and hoist pure helper functions
+**Learning:** In React Native, `FlatList` performance can degrade if the `renderItem` function is re-created on every render cycle of the parent component. Additionally, pure helper functions defined inside a component cause unnecessary function re-allocations during each render cycle.
+**Action:** Always wrap the `renderItem` function for a `FlatList` in `useCallback`, ensuring all referenced parent scope variables (like state setters) are included in the dependency array to satisfy ESLint. Furthermore, proactively hoist pure helper functions outside the component scope to optimize performance.

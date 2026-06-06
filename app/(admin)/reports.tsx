@@ -2,17 +2,16 @@ import CustomBarChart from '@/components/CustomBarChart';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { ReportService, type IncidentReport, type ReportFilters } from '@/src/core/services/reportService';
+import { SrmActionButton } from '@/components/ui/srm';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -172,14 +171,7 @@ export default function ReportsScreen() {
             <Picker.Item label="Sans réclamation" value="no" />
           </Select>
 
-          <TouchableOpacity style={styles.primaryButton} onPress={generateReport} disabled={loading}>
-            {loading ? <ActivityIndicator color={COLORS.textPrimary} /> : (
-              <>
-                <Ionicons name="analytics-outline" size={20} color={COLORS.textPrimary} />
-                <Text style={styles.primaryButtonText}>Générer le rapport</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <SrmActionButton label="Générer le rapport" icon="analytics-outline" onPress={generateReport} disabled={loading} loading={loading} />
         </View>
 
         {report && (
@@ -196,14 +188,8 @@ export default function ReportsScreen() {
             <View style={styles.panel}>
               <Text style={styles.sectionTitle}>Exports</Text>
               <View style={styles.exportRow}>
-                <TouchableOpacity style={styles.secondaryButton} onPress={exportPdf} disabled={exporting !== null}>
-                  {exporting === 'pdf' ? <ActivityIndicator color={COLORS.textPrimary} /> : <Ionicons name="print-outline" size={19} color={COLORS.textPrimary} />}
-                  <Text style={styles.secondaryButtonText}>PDF</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryButton} onPress={exportExcel} disabled={exporting !== null}>
-                  {exporting === 'excel' ? <ActivityIndicator color={COLORS.textPrimary} /> : <Ionicons name="grid-outline" size={19} color={COLORS.textPrimary} />}
-                  <Text style={styles.secondaryButtonText}>Excel</Text>
-                </TouchableOpacity>
+                <SrmActionButton label="PDF" icon="print-outline" variant="secondary" onPress={exportPdf} disabled={exporting !== null} loading={exporting === 'pdf'} style={{ flex: 1 }} />
+                <SrmActionButton label="Excel" icon="grid-outline" variant="secondary" onPress={exportExcel} disabled={exporting !== null} loading={exporting === 'excel'} style={{ flex: 1 }} />
               </View>
             </View>
 
@@ -361,20 +347,8 @@ const styles = StyleSheet.create({
   picker: {
     color: COLORS.textPrimary,
   },
-  primaryButton: {
-    height: 52,
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  primaryButtonText: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-  },
+
+
   kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -410,22 +384,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: SPACING.md,
   },
-  secondaryButton: {
-    flex: 1,
-    height: 48,
-    borderWidth: 1,
-    borderColor: COLORS.borderStrong,
-    borderRadius: RADIUS.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    backgroundColor: COLORS.surfaceAlt,
-  },
-  secondaryButtonText: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
-  },
+
+
   breakdownRow: {
     flexDirection: 'row',
     alignItems: 'center',

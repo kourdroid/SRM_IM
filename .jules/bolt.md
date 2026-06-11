@@ -1,0 +1,3 @@
+## 2024-06-11 - Optimize FlatList renderItem with useCallback
+**Learning:** In React Native, inline `renderItem` functions inside a component body without `useCallback` cause unnecessary re-renders of the entire `FlatList` on every parent component state change (e.g., when the modal becomes visible). This codebase frequently utilizes `FlatList`, making this optimization highly impactful.
+**Action:** Always wrap `renderItem` and `keyExtractor` with `useCallback` when using `FlatList`. Ensure all required dependencies are included in the dependency array (like state setters if they are referenced) to avoid stale closures.

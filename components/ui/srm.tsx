@@ -294,7 +294,7 @@ const badgeVariants: Record<
     text: { color: COLORS.signalRed },
   },
   warning: {
-    container: { backgroundColor: COLORS.signalOrangeTint },
+    container: { backgroundColor: COLORS.signalOrangeTint, borderWidth: 1, borderColor: COLORS.signalOrange },
     text: { color: COLORS.signalOrange },
   },
   info: {

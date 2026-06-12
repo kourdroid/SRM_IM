@@ -34,6 +34,27 @@ interface Incident {
   synced: number;
 }
 
+// Format incident date for display
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch {
+    return 'Date invalide';
+  }
+};
+
+const parseMediaUrls = (value?: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
 export default function Home() {
   const { user } = useAuth();
   const db = useSQLiteContext();
@@ -45,17 +66,6 @@ export default function Home() {
   // Modal State
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
-
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch {
-      return 'Date invalide';
-    }
-  };
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async () => {
@@ -111,23 +121,14 @@ export default function Home() {
     }
   };
 
-  const parseMediaUrls = (value?: string | null) => {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
-    } catch {
-      return [];
-    }
-  };
-
   const openIncidentMap = (incident: Incident) => {
     if (incident.latitude == null || incident.longitude == null) return;
     const query = `${incident.latitude},${incident.longitude}`;
     Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  // Performance optimization: Memoize render function to prevent FlatList item re-renders
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
     const hasMedia = parseMediaUrls(item.media_urls).length > 0;
     const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
@@ -206,7 +207,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [setSelectedIncident, setIsModalVisible]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>

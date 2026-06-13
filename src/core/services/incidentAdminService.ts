@@ -144,7 +144,11 @@ export const IncidentAdminService = {
                 query = query.lt('created_at', end.toISOString().split('T')[0]);
             }
             if (filters.search && filters.search.trim() !== '') {
-                query = query.or(`description.ilike.%${filters.search.trim()}%,village.ilike.%${filters.search.trim()}%`);
+                // Security: Strip PostgREST reserved characters to prevent query injection in .or()
+                const sanitizedSearch = filters.search.replace(/[,.()":{}]/g, '').trim();
+                if (sanitizedSearch !== '') {
+                    query = query.or(`description.ilike.%${sanitizedSearch}%,village.ilike.%${sanitizedSearch}%`);
+                }
             }
         }
 

@@ -2,6 +2,7 @@ import {
   SrmActionButton,
   SrmEmptyState,
   SrmIconButton,
+  SrmListSkeleton,
   SrmMetricStrip,
   SrmScreenHeader,
   SrmSearchField,
@@ -177,9 +178,20 @@ export default function CommuneManagement() {
 
   if (loading && communes.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.textPrimary} />
-        <Text style={styles.loadingText}>Chargement des communes...</Text>
+      <View style={styles.screen}>
+        <SrmScreenHeader
+          kicker="RÉFÉRENTIEL"
+          title="Communes"
+          subtitle="Utilisé par les incidents et rapports"
+        />
+        <SrmMetricStrip
+          items={[
+            { label: 'TOTAL', value: '-' },
+            { label: 'AVEC INCIDENTS', value: '-' },
+            { label: 'SUPPRIMABLES', value: '-' },
+          ]}
+        />
+        <SrmListSkeleton count={6} style={styles.skeletonList} />
       </View>
     );
   }
@@ -343,16 +355,8 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
-  loadingText: {
-    ...TYPOGRAPHY.bodyBold,
-    marginTop: SPACING.md,
-    color: COLORS.textSecondary,
+  skeletonList: {
+    paddingTop: SPACING.xl,
   },
   modalOverlay: {
     flex: 1,

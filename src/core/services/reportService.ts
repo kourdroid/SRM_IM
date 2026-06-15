@@ -1,8 +1,5 @@
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
+import { formatMaterialsSummary } from '@/lib/materials';
 
 export interface ReportFilters {
   startDate: string;
@@ -37,6 +34,8 @@ export interface ReportBreakdowns {
   byCommune: ReportPoint[];
   byAgent: ReportPoint[];
   byIncidentType: ReportPoint[];
+  byDepartHta: ReportPoint[];
+  byMaterialQuantity: ReportPoint[];
 }
 
 export interface ReportRow {
@@ -45,6 +44,7 @@ export interface ReportRow {
   type: string;
   status: string;
   incident_type: string;
+  depart_hta: string | null;
   commune_name: string | null;
   village: string;
   agent_name: string | null;
@@ -56,10 +56,18 @@ export interface ReportRow {
   latitude: number | null;
   longitude: number | null;
   media_count: number;
+  materials_summary: string | null;
+  materials: ReportMaterial[];
 }
 
 interface DirectIncidentRow extends ReportRow {
   created_by: string | null;
+  incident_materials?: unknown;
+}
+
+export interface ReportMaterial {
+  material_name: string;
+  quantity: number;
 }
 
 export interface IncidentReport {
@@ -73,6 +81,7 @@ export interface IncidentReport {
 
 export interface ReportOptions {
   includeAuditDetails?: boolean;
+  includeRows?: boolean;
 }
 
 export interface ReportMedia {
@@ -105,12 +114,13 @@ export const ReportService = {
   async getIncidentReport(filters: ReportFilters, options: ReportOptions = {}): Promise<IncidentReport> {
     const params = buildRpcParams(filters);
 
-    const [{ data: summaryData, error: summaryError }, { data: breakdownData, error: breakdownError }, rows] =
+    const [{ data: summaryData, error: summaryError }, { data: breakdownData, error: breakdownError }, requestedRows] =
       await Promise.all([
         supabase.rpc('get_incident_report_summary', params),
         supabase.rpc('get_incident_report_breakdowns', params),
-        fetchAllRows(params),
+        options.includeRows || options.includeAuditDetails ? fetchAllRows(params) : Promise.resolve([]),
       ]);
+    const rows = summaryError || breakdownError ? await fetchAllRows(params) : requestedRows;
 
     const summary = summaryError && isMissingReportingRpcError(summaryError)
       ? buildSummaryFromRows(rows)
@@ -144,38 +154,28 @@ export const ReportService = {
     };
   },
 
-  async exportPdf(report: IncidentReport): Promise<void> {
-    const html = buildReportHtml(report);
-    const { uri } = await Print.printToFileAsync({
-      html,
-      base64: false,
+  async exportServerXlsx(filters: ReportFilters): Promise<string> {
+    const { data, error } = await supabase.functions.invoke('generate-report-export', {
+      body: {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        communeId: filters.communeId,
+        agentId: filters.agentId,
+        type: filters.type,
+        status: filters.status,
+        reclamation: filters.reclamation,
+      },
     });
-    await shareFile(uri, `rapport-incidents-${report.filters.startDate}-${report.filters.endDate}.pdf`);
-  },
 
-  async exportExcel(report: IncidentReport): Promise<void> {
-    const detailedReport = report.media.length > 0 || report.events.length > 0
-      ? report
-      : await ReportService.getIncidentReport(report.filters, { includeAuditDetails: true });
-
-    if (!FileSystem.documentDirectory) {
-      throw new Error('Document directory is not available on this device.');
+    if (error) {
+      throw new Error(`Server export failed: ${error.message}`);
     }
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([detailedReport.summary]), 'Summary');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.rows), 'Incidents');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.breakdowns.byCommune), 'By Commune');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.breakdowns.byAgent), 'By Agent');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.breakdowns.byIncidentType), 'By Incident Type');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.breakdowns.monthly), 'Monthly');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.media), 'Media');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailedReport.events), 'Audit Events');
-
-    const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' }) as string;
-    const uri = `${FileSystem.documentDirectory}rapport-incidents-${report.filters.startDate}-${report.filters.endDate}.xlsx`;
-    await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
-    await shareFile(uri, `rapport-incidents-${report.filters.startDate}-${report.filters.endDate}.xlsx`);
+    const record = asRecord(data);
+    const downloadUrl = asString(record.downloadUrl);
+    if (!downloadUrl) {
+      throw new Error('Server export returned no download URL.');
+    }
+    return downloadUrl;
   },
 };
 
@@ -223,6 +223,7 @@ async function fetchAllRowsFromTables(params: RpcParams): Promise<ReportRow[]> {
         type,
         status,
         incident_type,
+        depart_hta,
         village,
         equipment_used,
         reclamation,
@@ -231,6 +232,7 @@ async function fetchAllRowsFromTables(params: RpcParams): Promise<ReportRow[]> {
         latitude,
         longitude,
         media_urls,
+        incident_materials(material_name, quantity),
         created_by,
         communes(name)
       `)
@@ -381,6 +383,8 @@ function buildBreakdownsFromRows(rows: ReportRow[]): ReportBreakdowns {
     byCommune: countBy(rows, row => row.commune_name || 'Commune inconnue', 20, 'desc'),
     byAgent: countBy(rows, row => row.agent_name || 'Agent inconnu', 20, 'desc'),
     byIncidentType: countBy(rows, row => row.incident_type || 'Non classé', 20, 'desc'),
+    byDepartHta: countBy(rows.filter(row => row.type === 'MT'), row => row.depart_hta || 'Non renseigné', 20, 'desc'),
+    byMaterialQuantity: sumMaterials(rows, 20),
   };
 }
 
@@ -430,21 +434,26 @@ function parseBreakdowns(value: unknown): ReportBreakdowns {
     byCommune: asPointArray(record.byCommune),
     byAgent: asPointArray(record.byAgent),
     byIncidentType: asPointArray(record.byIncidentType),
+    byDepartHta: asPointArray(record.byDepartHta),
+    byMaterialQuantity: asPointArray(record.byMaterialQuantity),
   };
 }
 
 function parseRow(value: unknown): ReportRow {
   const row = asRecord(value);
+  const materials = parseMaterials(row.materials);
+  const equipmentUsed = asNullableString(row.equipment_used);
   return {
     id: asString(row.id),
     title: asNullableString(row.title),
     type: asString(row.type),
     status: asString(row.status),
     incident_type: asString(row.incident_type),
+    depart_hta: asNullableString(row.depart_hta),
     commune_name: asNullableString(row.commune_name),
     village: asString(row.village),
     agent_name: asNullableString(row.agent_name),
-    equipment_used: asNullableString(row.equipment_used),
+    equipment_used: equipmentUsed,
     reclamation: row.reclamation === true,
     created_at: asString(row.created_at),
     closed_at: asNullableString(row.closed_at),
@@ -452,6 +461,8 @@ function parseRow(value: unknown): ReportRow {
     latitude: asNullableNumber(row.latitude),
     longitude: asNullableNumber(row.longitude),
     media_count: asNumber(row.media_count),
+    materials_summary: asNullableString(row.materials_summary) || formatMaterialsSummary(materials, equipmentUsed || ''),
+    materials,
   };
 }
 
@@ -460,16 +471,19 @@ function parseDirectIncidentRow(value: unknown): DirectIncidentRow {
   const commune = asRecord(row.communes);
   const createdAt = asString(row.created_at);
   const closedAt = asNullableString(row.closed_at);
+  const materials = parseMaterials(row.incident_materials);
+  const equipmentUsed = asNullableString(row.equipment_used);
   return {
     id: asString(row.id),
     title: asNullableString(row.title),
     type: asString(row.type),
     status: asString(row.status),
     incident_type: asString(row.incident_type),
+    depart_hta: asNullableString(row.depart_hta),
     commune_name: asNullableString(commune.name),
     village: asString(row.village),
     agent_name: null,
-    equipment_used: asNullableString(row.equipment_used),
+    equipment_used: equipmentUsed,
     reclamation: row.reclamation === true,
     created_at: createdAt,
     closed_at: closedAt,
@@ -477,6 +491,8 @@ function parseDirectIncidentRow(value: unknown): DirectIncidentRow {
     latitude: asNullableNumber(row.latitude),
     longitude: asNullableNumber(row.longitude),
     media_count: asArrayLength(row.media_urls),
+    materials_summary: formatMaterialsSummary(materials, equipmentUsed || ''),
+    materials,
     created_by: asNullableString(row.created_by),
   };
 }
@@ -503,99 +519,35 @@ function parseEvent(value: unknown): ReportEvent {
   };
 }
 
-function buildReportHtml(report: IncidentReport): string {
-  const rows = report.rows.map((row) => `
-    <tr>
-      <td>${escapeHtml(formatDate(row.created_at))}</td>
-      <td>${escapeHtml(row.closed_at ? formatDate(row.closed_at) : '')}</td>
-      <td>${escapeHtml(formatClosureDuration(row.closure_duration_hours))}</td>
-      <td>${escapeHtml(row.title || row.incident_type)}</td>
-      <td>${escapeHtml(row.type)}</td>
-      <td>${escapeHtml(row.status)}</td>
-      <td>${escapeHtml(row.commune_name || '')}</td>
-      <td>${escapeHtml(row.village)}</td>
-      <td>${escapeHtml(row.agent_name || '')}</td>
-      <td>${row.media_count}</td>
-    </tr>
-  `).join('');
-
-  return `
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
-          h1 { font-size: 22px; margin: 0 0 4px; }
-          h2 { font-size: 16px; margin: 24px 0 8px; }
-          .muted { color: #6B7280; font-size: 12px; }
-          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 18px; }
-          .kpi { border: 1px solid #E5E7EB; padding: 10px; border-radius: 6px; }
-          .label { color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
-          .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
-          th, td { border-bottom: 1px solid #E5E7EB; padding: 6px; text-align: left; vertical-align: top; }
-          th { background: #F3F4F6; text-transform: uppercase; font-size: 9px; letter-spacing: .06em; }
-        </style>
-      </head>
-      <body>
-        <h1>Rapport des incidents SRM</h1>
-        <div class="muted">Période: ${escapeHtml(report.filters.startDate)} au ${escapeHtml(report.filters.endDate)}</div>
-        <div class="muted">Généré le ${escapeHtml(new Date().toLocaleString())}</div>
-
-        <div class="grid">
-          ${kpiHtml('Total', report.summary.total)}
-          ${kpiHtml('En cours', report.summary.open)}
-          ${kpiHtml('Clôturés', report.summary.closed)}
-          ${kpiHtml('Réclamations', report.summary.reclamations)}
-          ${kpiHtml('BT', report.summary.bt)}
-          ${kpiHtml('MT', report.summary.mt)}
-          ${kpiHtml('GPS manquant', report.summary.missingGps)}
-          ${kpiHtml('Photo manquante', report.summary.missingPhoto)}
-          ${kpiHtml('Durée moy. (j)', Number(report.summary.avgClosureDays.toFixed(1)))}
-          ${kpiHtml('Durée max. (j)', Number(report.summary.maxClosureDays.toFixed(1)))}
-        </div>
-
-        <h2>Détails des incidents</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Clôture</th>
-              <th>Durée</th>
-              <th>Titre</th>
-              <th>Type</th>
-              <th>Statut</th>
-              <th>Commune</th>
-              <th>Village</th>
-              <th>Agent</th>
-              <th>Photos</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </body>
-    </html>
-  `;
-}
-
-async function shareFile(uri: string, dialogTitle: string): Promise<void> {
-  const available = await Sharing.isAvailableAsync();
-  if (!available) {
-    throw new Error('Le partage de fichiers n’est pas disponible sur cet appareil.');
-  }
-  await Sharing.shareAsync(uri, { dialogTitle });
-}
-
-function kpiHtml(label: string, value: number): string {
-  return `<div class="kpi"><div class="label">${escapeHtml(label)}</div><div class="value">${value}</div></div>`;
-}
-
 function asPointArray(value: unknown): ReportPoint[] {
   return Array.isArray(value) ? value.map((item) => {
     const record = asRecord(item);
     return { label: asString(record.label), value: asNumber(record.value) };
   }) : [];
+}
+
+function parseMaterials(value: unknown): ReportMaterial[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = asRecord(item);
+    const materialName = asString(record.material_name);
+    const quantity = asNumber(record.quantity);
+    return materialName && quantity > 0 ? [{ material_name: materialName, quantity }] : [];
+  });
+}
+
+function sumMaterials(rows: ReportRow[], limit: number): ReportPoint[] {
+  const sums = new Map<string, number>();
+  rows.forEach((row) => {
+    row.materials.forEach((material) => {
+      sums.set(material.material_name, (sums.get(material.material_name) || 0) + material.quantity);
+    });
+  });
+
+  return Array.from(sums.entries())
+    .map(([label, value]) => ({ label, value: Math.round(value * 1000) / 1000 }))
+    .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label))
+    .slice(0, limit);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -644,31 +596,12 @@ function isMissingRelationError(error: { code?: string; message: string }): bool
   );
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString();
-}
-
 function calculateClosureHours(createdAt: string, closedAt: string | null): number | null {
   if (!closedAt) return null;
   const created = new Date(createdAt).getTime();
   const closed = new Date(closedAt).getTime();
   if (!Number.isFinite(created) || !Number.isFinite(closed)) return null;
   return Math.max(0, Math.round(((closed - created) / 3600000) * 100) / 100);
-}
-
-function formatClosureDuration(hours: number | null): string {
-  if (hours === null) return '';
-  if (hours < 24) return `${hours.toFixed(1)} h`;
-  return `${(hours / 24).toFixed(1)} j`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {

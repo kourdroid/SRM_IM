@@ -21,6 +21,7 @@ export interface IncidentEntity {
     readonly village: string;
     readonly status: IncidentStatus;
     readonly incidentType: string;
+    readonly departHta: string | null;
     readonly communeId: string;
     readonly equipmentUsed: string;
     readonly description: string | null;

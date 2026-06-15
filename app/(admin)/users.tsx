@@ -1,5 +1,10 @@
-import { SrmActionButton, SrmEmptyState, SrmScreenHeader, SrmStatusBadge } from '@/components/ui/srm';
-import { UserAdminService, type UserProfile, type UserRole } from '@/src/core/services/userAdminService';
+import { SrmActionButton, SrmEmptyState, SrmListSkeleton, SrmScreenHeader, SrmStatusBadge } from '@/components/ui/srm';
+import {
+  UserAdminService,
+  type UserApprovalStatus,
+  type UserProfile,
+  type UserRole,
+} from '@/src/core/services/userAdminService';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
@@ -62,6 +67,7 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [rolePickerProfile, setRolePickerProfile] = useState<UserProfile | null>(null);
   const [roleUpdating, setRoleUpdating] = useState(false);
+  const [approvalUpdatingId, setApprovalUpdatingId] = useState<string | null>(null);
   
   // Create user modal state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -101,6 +107,31 @@ export default function UserManagement() {
       }
     } finally {
       setRoleUpdating(false);
+    }
+  };
+
+  const updateApproval = async (profile: UserProfile, approvalStatus: UserApprovalStatus) => {
+    if (profile.approval_status === approvalStatus) return;
+    setApprovalUpdatingId(profile.id);
+    try {
+      await UserAdminService.updateUserApproval({
+        id: profile.id,
+        approval_status: approvalStatus,
+      });
+      setProfiles(prev => prev.map(p => (
+        p.id === profile.id ? { ...p, approval_status: approvalStatus } : p
+      )));
+      const label = approvalStatus === 'approved' ? 'approuvé' : 'refusé';
+      Alert.alert('Succès', `Compte de ${profile.name || 'l’utilisateur'} ${label}.`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes('NETWORK_OFFLINE')) {
+        Alert.alert('Hors ligne', 'Les mutations administrateur requièrent une connexion active.');
+      } else {
+        Alert.alert('Erreur de mise à jour', message);
+      }
+    } finally {
+      setApprovalUpdatingId(null);
     }
   };
 
@@ -155,7 +186,7 @@ export default function UserManagement() {
       setNewPassword('');
       setNewName('');
       setNewRole('field');
-      Alert.alert('Succès', `Compte créé avec succès pour ${newName}.`);
+      Alert.alert('Succès', `Compte créé et approuvé pour ${newName.trim()}.`);
     } catch (e: unknown) {
       Alert.alert('Erreur lors de la création', e instanceof Error ? e.message : String(e));
     } finally {
@@ -197,8 +228,12 @@ export default function UserManagement() {
           </Text>
         </View>
 
-        {/* Role */}
+        {/* Role and approval */}
         <View style={styles.roleToggleSection}>
+          <SrmStatusBadge
+            label={getApprovalLabel(item.approval_status)}
+            variant={getApprovalVariant(item.approval_status)}
+          />
           <SrmStatusBadge label={getRoleLabel(item.role)} variant={getRoleVariant(item.role)} />
           <TouchableOpacity
             style={styles.changeRoleButton}
@@ -209,6 +244,31 @@ export default function UserManagement() {
             <Text style={styles.changeRoleText}>Changer</Text>
           </TouchableOpacity>
         </View>
+
+        {item.approval_status === 'pending' ? (
+          <View style={styles.approvalActions}>
+            <TouchableOpacity
+              style={styles.approveButton}
+              onPress={() => updateApproval(item, 'approved')}
+              disabled={approvalUpdatingId === item.id}
+              activeOpacity={0.78}
+            >
+              {approvalUpdatingId === item.id ? (
+                <ActivityIndicator size="small" color={COLORS.primaryDark} />
+              ) : (
+                <Ionicons name="checkmark" size={18} color={COLORS.primaryDark} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.rejectButton}
+              onPress={() => updateApproval(item, 'rejected')}
+              disabled={approvalUpdatingId === item.id}
+              activeOpacity={0.78}
+            >
+              <Ionicons name="close" size={18} color={COLORS.statRed} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Delete action */}
         <TouchableOpacity
@@ -224,9 +284,13 @@ export default function UserManagement() {
 
   if (loading && profiles.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primaryDark} />
-        <Text style={styles.loadingText}>Chargement des utilisateurs...</Text>
+      <View style={styles.screen}>
+        <SrmScreenHeader
+          kicker="ADMINISTRATION"
+          title="Utilisateurs"
+          subtitle="Chargement des accès équipe"
+        />
+        <SrmListSkeleton count={6} showAvatar style={styles.skeletonList} />
       </View>
     );
   }
@@ -236,7 +300,7 @@ export default function UserManagement() {
       <SrmScreenHeader
         kicker="ADMINISTRATION"
         title="Utilisateurs"
-        subtitle={`${profiles.length} membre${profiles.length > 1 ? 's' : ''} actif${profiles.length > 1 ? 's' : ''}`}
+        subtitle={`${profiles.length} membre${profiles.length > 1 ? 's' : ''} · ${profiles.filter(p => p.approval_status === 'pending').length} en attente`}
         rightSlot={
           <SrmActionButton
             label="Nouveau"
@@ -465,6 +529,18 @@ function getRoleVariant(role: UserRole): 'neutral' | 'info' {
   return role === 'field' ? 'neutral' : 'info';
 }
 
+function getApprovalLabel(approvalStatus: UserApprovalStatus): string {
+  if (approvalStatus === 'approved') return 'APPROUVÉ';
+  if (approvalStatus === 'rejected') return 'REFUSÉ';
+  return 'EN ATTENTE';
+}
+
+function getApprovalVariant(approvalStatus: UserApprovalStatus): 'success' | 'danger' | 'warning' {
+  if (approvalStatus === 'approved') return 'success';
+  if (approvalStatus === 'rejected') return 'danger';
+  return 'warning';
+}
+
 // ─── Styles ────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   screen: {
@@ -630,19 +706,35 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // ── Loading ──
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  approvalActions: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
+    gap: 6,
+    marginRight: 8,
   },
 
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
+  approveButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: COLORS.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  rejectButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  skeletonList: {
+    paddingTop: 14,
   },
 
   // ── Empty ──

@@ -5,6 +5,8 @@ import { AppState } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { isSupabaseNetworkError } from '@/lib/supabase';
 import { syncAll } from '@/lib/sync';
+import { emitSyncCompleted } from '@/lib/syncEvents';
+import { hasPendingSyncOperations } from '@/db/syncOperations';
 
 export default function SyncCoordinator() {
   const { user } = useAuth();
@@ -20,6 +22,7 @@ export default function SyncCoordinator() {
     try {
       isRunningRef.current = true;
       await syncAll(db, user.id, { reason });
+      emitSyncCompleted(reason);
     } catch (error) {
       if (isSupabaseNetworkError(error)) {
         console.warn('Background sync deferred: Supabase is unreachable.');
@@ -47,15 +50,19 @@ export default function SyncCoordinator() {
     });
 
     const interval = setInterval(() => {
-      void runSync('foreground');
-    }, 5 * 60 * 1000);
+      void (async () => {
+        if (await hasPendingSyncOperations(db)) {
+          await runSync('foreground');
+        }
+      })();
+    }, 30 * 1000);
 
     return () => {
       appStateSubscription.remove();
       networkSubscription.remove();
       clearInterval(interval);
     };
-  }, [runSync]);
+  }, [db, runSync]);
 
   return null;
 }

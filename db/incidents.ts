@@ -10,6 +10,7 @@ export interface IncidentRow {
     village: string;
     status: 'open' | 'closed';
     incident_type: string;
+    depart_hta: string | null;
     commune_id: string;
     equipment_used: string;
     description: string | null;
@@ -23,6 +24,7 @@ export interface IncidentRow {
     media_urls: string | null;
     sync_status: 'pending' | 'syncing' | 'synced' | 'failed';
     sync_error: string | null;
+    archived_at: string | null;
     synced: number;
     created_at: string;
     updated_at: string;
@@ -34,6 +36,7 @@ export interface CreateIncidentInput {
     date: string;
     village: string;
     incident_type: string;
+    depart_hta?: string | null;
     commune_id: string;
     equipment_used: string;
     description?: string;
@@ -87,16 +90,17 @@ export async function createIncident(
 ): Promise<number> {
     const result = await db.runAsync(
         `INSERT INTO incidents (
-      client_id, type, date, village, incident_type, commune_id, equipment_used,
+      client_id, type, date, village, incident_type, depart_hta, commune_id, equipment_used,
       description, reclamation, reclamation_name, reclamation_by, created_by,
       latitude, longitude, gps_accuracy, media_urls, sync_status, synced
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
         [
             incident.client_id,
             incident.type,
             incident.date,
             incident.village,
             incident.incident_type,
+            incident.depart_hta ?? null,
             incident.commune_id,
             incident.equipment_used,
             incident.description || null,
@@ -189,6 +193,37 @@ export async function markIncidentSyncFailed(
     );
 }
 
+export async function markIncidentSyncPending(
+    db: SQLiteDatabase,
+    localId: number
+): Promise<void> {
+    await db.runAsync(
+        `UPDATE incidents
+         SET sync_status = 'pending', sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND sync_status IN ('syncing', 'failed')`,
+        [localId]
+    );
+}
+
+export async function resetRetryableIncidentSyncFailures(db: SQLiteDatabase): Promise<number> {
+    const result = await db.runAsync(
+        `UPDATE incidents
+         SET sync_status = 'pending',
+             sync_error = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE sync_status = 'failed'
+           AND EXISTS (
+             SELECT 1
+             FROM sync_operations so
+             WHERE so.local_incident_id = incidents.id
+               AND so.is_terminal = 0
+               AND so.status != 'done'
+           )`
+    );
+    return result.changes;
+}
+
 export async function updateIncidentMediaUrls(
     db: SQLiteDatabase,
     localId: number,
@@ -213,6 +248,7 @@ export async function upsertIncidentsFromServer(
         village: string;
         status: 'open' | 'closed';
         incident_type: string;
+        depart_hta?: string | null;
         commune_id: string | null;
         equipment_used: string;
         description?: string;
@@ -225,6 +261,7 @@ export async function upsertIncidentsFromServer(
         media_urls?: string[];
         created_at: string;
         updated_at?: string;
+        archived_at?: string | null;
     }[]
 ): Promise<void> {
     for (const inc of incidents) {
@@ -251,6 +288,7 @@ export async function upsertIncidentsFromServer(
                     village = ?,
                     status = ?,
                     incident_type = ?,
+                    depart_hta = ?,
                     commune_id = ?,
                     equipment_used = ?,
                     description = ?,
@@ -261,6 +299,7 @@ export async function upsertIncidentsFromServer(
                     longitude = COALESCE(?, longitude),
                     gps_accuracy = COALESCE(?, gps_accuracy),
                     media_urls = ?,
+                    archived_at = ?,
                     sync_status = CASE WHEN sync_status = 'failed' THEN sync_status ELSE 'synced' END,
                     synced = 1,
                     created_at = ?,
@@ -274,6 +313,7 @@ export async function upsertIncidentsFromServer(
                     inc.village || 'Unknown',
                     inc.status || 'open',
                     inc.incident_type || 'General',
+                    inc.depart_hta || null,
                     safeCommuneId,
                     inc.equipment_used || '',
                     inc.description || null,
@@ -284,6 +324,7 @@ export async function upsertIncidentsFromServer(
                     inc.longitude || null,
                     inc.gps_accuracy ?? null,
                     shouldKeepLocalMedia ? existing.media_urls : mediaUrls,
+                    inc.archived_at || null,
                     inc.created_at || new Date().toISOString(),
                     inc.updated_at || inc.created_at || new Date().toISOString(),
                     existing.id,
@@ -294,10 +335,10 @@ export async function upsertIncidentsFromServer(
 
         await db.runAsync(
             `INSERT INTO incidents (
-        client_id, remote_id, type, date, village, status, incident_type, commune_id,
+        client_id, remote_id, type, date, village, status, incident_type, depart_hta, commune_id,
         equipment_used, description, reclamation, reclamation_name,
-        created_by, latitude, longitude, gps_accuracy, media_urls, sync_status, synced, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
+        created_by, latitude, longitude, gps_accuracy, media_urls, archived_at, sync_status, synced, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
       `,
             [
                 safeClientId,
@@ -307,6 +348,7 @@ export async function upsertIncidentsFromServer(
                 inc.village || 'Unknown',
                 inc.status || 'open',
                 inc.incident_type || 'General',
+                inc.depart_hta || null,
                 safeCommuneId,
                 inc.equipment_used || '',
                 inc.description || null,
@@ -317,6 +359,7 @@ export async function upsertIncidentsFromServer(
                 inc.longitude || null,
                 inc.gps_accuracy ?? null,
                 mediaUrls,
+                inc.archived_at || null,
                 inc.created_at || new Date().toISOString(),
                 inc.updated_at || inc.created_at || new Date().toISOString(),
             ]
@@ -324,7 +367,7 @@ export async function upsertIncidentsFromServer(
     }
 }
 
-export async function deleteStaleSyncedIncidents(
+export async function archiveStaleSyncedIncidents(
     db: SQLiteDatabase,
     userId: string,
     remoteIds: string[]
@@ -356,7 +399,9 @@ export async function deleteStaleSyncedIncidents(
 
     const placeholders = staleRows.map(() => '?').join(',');
     await db.runAsync(
-        `DELETE FROM incidents WHERE id IN (${placeholders})`,
+        `UPDATE incidents
+         SET archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${placeholders})`,
         staleRows.map(row => row.id)
     );
 

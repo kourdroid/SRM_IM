@@ -41,6 +41,7 @@ export const IncidentFromServerSchema = z.object({
     village: z.string().min(1),
     status: IncidentStatusSchema,
     incident_type: z.string().nullable().default('General'),
+    depart_hta: z.string().nullable().optional(),
     commune_id: z.string().uuid().nullable(), // Can be null from server
     equipment_used: z.string().nullable().default(''),
     description: z.string().nullable().optional(),
@@ -68,6 +69,7 @@ export const CreateIncidentSchema = z.object({
     date: z.string().min(1, 'Date is required'),
     village: z.string().min(2, 'Village name must be at least 2 characters'),
     incident_type: z.string().default('General'),
+    depart_hta: z.string().nullable().optional(),
     commune_id: z.string().uuid('Please select a valid commune'),
     equipment_used: z.string().min(1, 'Equipment is required'),
     description: z.string().optional(),
@@ -87,48 +89,6 @@ export const UpdateIncidentStatusSchema = z.object({
 });
 
 export type UpdateIncidentStatusInput = z.infer<typeof UpdateIncidentStatusSchema>;
-
-// ============================================================
-// VOICE WEBHOOK SCHEMAS
-// ============================================================
-
-/**
- * Schema for voice AI webhook response
- */
-export const VoiceAIResponseSchema = z.object({
-    type: VoltageTypeSchema.optional(),
-    village: z.string().optional(),
-    commune_id: z.string().nullable().optional(),
-    incident_type: z.string().optional(),
-    equipment_used: z.string().optional(),
-    description: z.string().optional(),
-    title: z.string().optional(),
-    date: z.string().optional(),
-    reclamation: z.boolean().optional(),
-    is_reclamation: z.boolean().optional(),
-    reclamation_name: z.string().nullable().optional(),
-    reclamation_by: z.string().nullable().optional(),
-    status: IncidentStatusSchema.optional(),
-    media_urls: z.array(z.string()).optional(),
-});
-
-export type VoiceAIResponse = z.infer<typeof VoiceAIResponseSchema>;
-
-/**
- * Helper to safely parse voice AI response with fallback
- */
-export function parseVoiceAIResponse(data: unknown): VoiceAIResponse | null {
-    const result = VoiceAIResponseSchema.safeParse(data);
-    if (result.success) {
-        return result.data;
-    }
-    console.warn('Voice AI response validation failed:', result.error.flatten());
-    return null;
-}
-
-// ============================================================
-// USER SCHEMAS
-// ============================================================
 
 export const UserRoleSchema = z.enum(['admin', 'field', 'director']);
 export type UserRole = z.infer<typeof UserRoleSchema>;

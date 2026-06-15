@@ -100,7 +100,6 @@ SRM/
 │   ├── supabase.ts               # Supabase client (SecureStore adapter)
 │   ├── sync.ts                   # Offline sync engine
 │   ├── imageUtils.ts             # Compress & upload to Supabase Storage
-│   └── voice-processing.ts       # Voice-to-incident via Edge Function
 ├── contexts/
 │   └── AuthContext.tsx            # Auth state + role-based access
 ├── supabase/
@@ -142,7 +141,6 @@ SRM/
    ```env
    EXPO_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
    EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-public-key
-   EXPO_PUBLIC_VOICE_FUNCTION_URL=https://your-project-id.supabase.co/functions/v1/process-voice
    EXPO_PUBLIC_N8N_WEBHOOK_URL=https://n8n.example.com/webhook/your-id  # Optional
    ```
 

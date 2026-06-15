@@ -33,6 +33,9 @@ export async function compressImage(uri: string): Promise<string> {
       from: result.uri,
       to: destinationPath,
     });
+    if (result.uri !== uri) {
+      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+    }
 
     return destinationPath;
   } catch (error) {
@@ -73,13 +76,14 @@ export async function uploadToSupabase(
   incidentId: string,
   objectName?: string
 ): Promise<{ publicUrl: string; storagePath: string }> {
+  let uploadPath: string | null = null;
   try {
     const info = await FileSystem.getInfoAsync(localPath);
     if (!info.exists) {
       throw new Error(`Local media file not found: ${localPath}`);
     }
 
-    const uploadPath = await compressImage(localPath);
+    uploadPath = await compressImage(localPath);
 
     const {
       data: { session },
@@ -118,5 +122,14 @@ export async function uploadToSupabase(
   } catch (error) {
     console.error('Error uploading to Supabase Storage:', error);
     throw error;
+  } finally {
+    if (uploadPath) {
+      await deleteLocalMedia(uploadPath);
+    }
   }
+}
+
+export async function deleteLocalMedia(uri: string): Promise<void> {
+  if (!uri.startsWith('file:')) return;
+  await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
 }

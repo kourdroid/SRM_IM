@@ -1,4 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
+import { PENDING_APPROVAL_ROUTE } from '@/src/core/constants/routes';
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
@@ -6,7 +7,7 @@ import { ActivityIndicator, View } from 'react-native';
 import CustomTabBar from '../../components/CustomTabBar';
 
 export default function TabLayout() {
-  const { loading, role } = useAuth();
+  const { loading, role, isApproved } = useAuth();
 
   if (loading) {
     return (
@@ -22,6 +23,10 @@ export default function TabLayout() {
 
   if (role === 'director') {
     return <Redirect href="/(director)/dashboard" />;
+  }
+
+  if (!isApproved) {
+    return <Redirect href={PENDING_APPROVAL_ROUTE} />;
   }
 
   return (

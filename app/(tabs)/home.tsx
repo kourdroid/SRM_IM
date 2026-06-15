@@ -2,13 +2,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
-import { enqueueStatusUpdate } from '../../db/syncOperations';
+import { getIncidentMaterialsByLocalId, insertIncidentMaterials, type IncidentMaterialRow } from '../../db/incidentMaterials';
+import { enqueueStatusUpdate, enqueueSyncMaterials } from '../../db/syncOperations';
 import { useSync } from '../../hooks/useSync';
+import { subscribeSyncCompleted } from '../../lib/syncEvents';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
+import { SrmListSkeleton } from '@/components/ui/srm';
+import {
+  buildEquipmentSummary,
+  createEmptyMaterialFormRow,
+  normalizeMaterialRows,
+  type MaterialFormRow,
+} from '@/lib/materials';
 
 // Define the incident type mapping to SQLite schema
 interface Incident {
@@ -18,6 +27,7 @@ interface Incident {
   date: string;
   village: string;
   incident_type?: string;
+  depart_hta?: string | null;
   status: 'open' | 'closed';
   commune_id?: string;
   equipment_used?: string;
@@ -34,6 +44,32 @@ interface Incident {
   synced: number;
 }
 
+const INCIDENT_PAGE_SIZE = 30;
+const INCIDENT_LIST_COLUMNS = [
+  'id',
+  'client_id',
+  'type',
+  'date',
+  'village',
+  'incident_type',
+  'depart_hta',
+  'status',
+  'commune_id',
+  'equipment_used',
+  'reclamation',
+  'reclamation_by',
+  'reclamation_name',
+  'created_by',
+  'latitude',
+  'longitude',
+  'media_urls',
+  'sync_status',
+  'sync_error',
+  'created_at',
+  'archived_at',
+  'synced',
+].join(', ');
+
 export default function Home() {
   const { user } = useAuth();
   const db = useSQLiteContext();
@@ -41,10 +77,16 @@ export default function Home() {
 
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   // Modal State
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [selectedIncidentMaterials, setSelectedIncidentMaterials] = useState<IncidentMaterialRow[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [showClosureMaterials, setShowClosureMaterials] = useState(false);
+  const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
+  const [isClosingIncident, setIsClosingIncident] = useState(false);
 
   // Format incident date for display
   const formatIncidentDate = (dateString?: string) => {
@@ -58,18 +100,45 @@ export default function Home() {
   };
 
   // Fetch incidents from SQLite
-  const fetchIncidents = useCallback(async () => {
+  const fetchIncidents = useCallback(async (reset = true, cursor?: Incident) => {
     try {
-      setIsLoading(true);
+      if (reset) {
+        setIsLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+      const pageCursor = reset ? null : cursor;
       const rows = await db.getAllAsync<Incident>(
-        'SELECT * FROM incidents WHERE created_by = ? ORDER BY date DESC',
-        [user?.id ?? '']
+        `SELECT ${INCIDENT_LIST_COLUMNS}
+         FROM incidents
+         WHERE created_by = ?
+           AND archived_at IS NULL
+           AND (
+             ? IS NULL
+             OR date < ?
+             OR (date = ? AND id < ?)
+           )
+         ORDER BY date DESC, id DESC
+         LIMIT ?`,
+        [
+          user?.id ?? '',
+          pageCursor?.date ?? null,
+          pageCursor?.date ?? null,
+          pageCursor?.date ?? null,
+          pageCursor?.id ?? null,
+          INCIDENT_PAGE_SIZE,
+        ]
       );
-      setIncidents(rows);
+      setIncidents(current => reset ? rows : [...current, ...rows]);
+      setHasMore(rows.length === INCIDENT_PAGE_SIZE);
     } catch (error) {
       console.error('Error fetching incidents:', error);
     } finally {
-      setIsLoading(false);
+      if (reset) {
+        setIsLoading(false);
+      } else {
+        setIsLoadingMore(false);
+      }
     }
   }, [db, user?.id]);
 
@@ -77,10 +146,10 @@ export default function Home() {
     useCallback(() => {
       let isActive = true;
       const refresh = async () => {
-        await fetchIncidents();
+        await fetchIncidents(true);
         await syncPendingItems({ reason: 'foreground' });
         if (isActive) {
-          await fetchIncidents();
+          await fetchIncidents(true);
         }
       };
 
@@ -92,22 +161,63 @@ export default function Home() {
     }, [fetchIncidents, syncPendingItems])
   );
 
-  const handleCloseIncident = async (incidentId: string) => {
+  useEffect(() => {
+    return subscribeSyncCompleted(() => {
+      void fetchIncidents(true);
+    });
+  }, [fetchIncidents]);
+
+  const handleCloseIncident = async (incident: Incident) => {
+    const hasExistingMaterials = selectedIncidentMaterials.length > 0;
+    if (!hasExistingMaterials && !showClosureMaterials) {
+      setShowClosureMaterials(true);
+      return;
+    }
+
+    const normalizedMaterials = normalizeMaterialRows(closureMaterialRows);
+    if (normalizedMaterials === null) {
+      Alert.alert("Matériel invalide", "Chaque ligne de matériel doit avoir un nom et une quantité positive.");
+      return;
+    }
+    if (!hasExistingMaterials && normalizedMaterials.length === 0) {
+      Alert.alert("Matériel requis", "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
+      return;
+    }
+
     try {
-      await db.runAsync(
-        `UPDATE incidents
-         SET status = ?, synced = 0, sync_status = 'pending', sync_error = NULL
-         WHERE id = ?`,
-        ['closed', incidentId]
-      );
-      await enqueueStatusUpdate(db, Number(incidentId), 'closed');
+      setIsClosingIncident(true);
+      const localIncidentId = Number(incident.id);
+      const existingSummary = incident.equipment_used || selectedIncidentMaterials
+        .map((material) => `${material.material_name} x${formatQuantity(material.quantity)}`)
+        .join(', ');
+      const equipmentSummary = normalizedMaterials.length > 0
+        ? buildEquipmentSummary(normalizedMaterials)
+        : existingSummary;
+
+      await db.withTransactionAsync(async () => {
+        if (normalizedMaterials.length > 0) {
+          await insertIncidentMaterials(db, localIncidentId, normalizedMaterials);
+          await enqueueSyncMaterials(db, localIncidentId);
+        }
+        await db.runAsync(
+          `UPDATE incidents
+           SET status = ?, equipment_used = ?, synced = 0, sync_status = 'pending', sync_error = NULL
+           WHERE id = ?`,
+          ['closed', equipmentSummary, localIncidentId]
+        );
+        await enqueueStatusUpdate(db, localIncidentId, 'closed');
+      });
       Alert.alert("Succès", "Incident clôturé avec succès");
       setIsModalVisible(false);
+      setShowClosureMaterials(false);
+      setClosureMaterialRows([createEmptyMaterialFormRow()]);
       await syncPendingItems({ reason: 'manual', forceReferenceData: true });
-      await fetchIncidents();
+      await fetchIncidents(true);
     } catch (error) {
       console.error(error);
       Alert.alert("Erreur", "Impossible de clôturer l'incident");
+    } finally {
+      setIsClosingIncident(false);
     }
   };
 
@@ -125,6 +235,32 @@ export default function Home() {
     if (incident.latitude == null || incident.longitude == null) return;
     const query = `${incident.latitude},${incident.longitude}`;
     Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  };
+
+  const openIncidentDetails = async (incident: Incident) => {
+    setSelectedIncident(incident);
+    setIsModalVisible(true);
+    setShowClosureMaterials(false);
+    setClosureMaterialRows([createEmptyMaterialFormRow()]);
+    try {
+      const materials = await getIncidentMaterialsByLocalId(db, Number(incident.id));
+      setSelectedIncidentMaterials(materials);
+    } catch (error) {
+      console.warn('Failed to load incident materials:', error);
+      setSelectedIncidentMaterials([]);
+    }
+  };
+
+  const addClosureMaterialRow = () => {
+    setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
+  };
+
+  const removeClosureMaterialRow = (id: string) => {
+    setClosureMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
+  };
+
+  const updateClosureMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
+    setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
 
   const renderIncidentItem = ({ item }: { item: Incident }) => {
@@ -148,8 +284,7 @@ export default function Home() {
         }}
         activeOpacity={0.8}
         onPress={() => {
-          setSelectedIncident(item);
-          setIsModalVisible(true);
+          void openIncidentDetails(item);
         }}
       >
         {/* Status dot instead of border-left stripe */}
@@ -171,7 +306,6 @@ export default function Home() {
             </Text>
           </View>
           <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase' }}>
-            {syncStatus === 'pending' ? 'EN ATTENTE • ' : syncStatus === 'failed' ? 'ÉCHEC SYNC • ' : syncStatus === 'syncing' ? 'SYNCHRO • ' : ''}
             {formatIncidentDate(item.date)}
           </Text>
           {item.incident_type ? (
@@ -232,8 +366,8 @@ export default function Home() {
           {/* Manual Sync Button */}
           <TouchableOpacity
             onPress={async () => {
-              await syncPendingItems({ reason: 'manual', forceReferenceData: true });
-              await fetchIncidents();
+              await syncPendingItems({ reason: 'manual', forcePull: true, forceReferenceData: true });
+              await fetchIncidents(true);
             }}
             style={{
               backgroundColor: 'rgba(255,255,255,0.08)',
@@ -256,20 +390,27 @@ export default function Home() {
       {/* List Container */}
         <View style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: SPACING.xxl }}>
         {isLoading ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <ActivityIndicator size="large" color="#DAF22C" />
-          </View>
+          <SrmListSkeleton count={6} />
         ) : (
           <FlatList
             data={incidents}
             renderItem={renderIncidentItem}
-            keyExtractor={item => item.id}
+            keyExtractor={item => String(item.id)}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
             initialNumToRender={8}
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
+            onEndReached={() => {
+              if (hasMore && !isLoadingMore) {
+                void fetchIncidents(false, incidents.at(-1));
+              }
+            }}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={isLoadingMore ? (
+              <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />
+            ) : null}
             ListEmptyComponent={
               <View style={{
                 flex: 1,
@@ -379,12 +520,34 @@ export default function Home() {
 
                 <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
                   <Text style={{ color: '#6B7280', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
-                    ÉQUIPEMENT
+                    MATÉRIEL
                   </Text>
-                  <Text style={{ color: '#111827', fontSize: 16, fontWeight: '600' }}>
-                    {selectedIncident.equipment_used || "NON SPÉCIFIÉ"}
-                  </Text>
+                  {selectedIncidentMaterials.length > 0 ? (
+                    <View style={{ gap: 8 }}>
+                      {selectedIncidentMaterials.map((material) => (
+                        <View key={material.client_material_id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 16 }}>
+                          <Text style={{ color: '#111827', fontSize: 16, fontWeight: '700', flex: 1 }}>{material.material_name}</Text>
+                          <Text style={{ color: '#111827', fontSize: 16, fontWeight: '900' }}>x{formatQuantity(material.quantity)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={{ color: '#111827', fontSize: 16, fontWeight: '600' }}>
+                      {selectedIncident.equipment_used || "NON SPÉCIFIÉ"}
+                    </Text>
+                  )}
                 </View>
+
+                {selectedIncident.type === 'MT' && selectedIncident.depart_hta ? (
+                  <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
+                    <Text style={{ color: '#6B7280', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
+                      DÉPART HTA
+                    </Text>
+                    <Text style={{ color: '#111827', fontSize: 16, fontWeight: '600' }}>
+                      {selectedIncident.depart_hta}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {Boolean(selectedIncident.reclamation) && (
                   <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
@@ -445,6 +608,98 @@ export default function Home() {
 
                 <View style={{ flex: 1 }} />
 
+                {selectedIncident.status !== 'closed' && showClosureMaterials && selectedIncidentMaterials.length === 0 ? (
+                  <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#F59E0B', backgroundColor: '#FFFBEB' }}>
+                    <Text style={{ color: '#92400E', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
+                      MATÉRIEL OBLIGATOIRE
+                    </Text>
+                    <Text style={{ color: '#78350F', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
+                      Renseignez le matériel utilisé avant de clôturer cet incident.
+                    </Text>
+                    <View style={{ gap: 10 }}>
+                      {closureMaterialRows.map((row, index) => (
+                        <View key={row.id} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                          <TextInput
+                            style={{
+                              flex: 1,
+                              backgroundColor: '#FFFFFF',
+                              borderRadius: 8,
+                              padding: 12,
+                              color: '#111827',
+                              fontSize: 15,
+                              fontWeight: '600',
+                              borderWidth: 1,
+                              borderColor: '#FCD34D',
+                            }}
+                            value={row.materialName}
+                            onChangeText={(value) => updateClosureMaterialRow(row.id, { materialName: value })}
+                            placeholder={index === 0 ? 'Matériel' : 'Autre matériel'}
+                            placeholderTextColor="#9CA3AF"
+                            editable={!isClosingIncident}
+                          />
+                          <TextInput
+                            style={{
+                              width: 84,
+                              backgroundColor: '#FFFFFF',
+                              borderRadius: 8,
+                              padding: 12,
+                              color: '#111827',
+                              fontSize: 15,
+                              fontWeight: '800',
+                              borderWidth: 1,
+                              borderColor: '#FCD34D',
+                              textAlign: 'center',
+                            }}
+                            value={row.quantity}
+                            onChangeText={(value) => updateClosureMaterialRow(row.id, { quantity: value })}
+                            placeholder="Qté"
+                            placeholderTextColor="#9CA3AF"
+                            keyboardType="decimal-pad"
+                            editable={!isClosingIncident}
+                          />
+                          {closureMaterialRows.length > 1 ? (
+                            <TouchableOpacity
+                              onPress={() => removeClosureMaterialRow(row.id)}
+                              disabled={isClosingIncident}
+                              style={{
+                                width: 42,
+                                height: 42,
+                                borderRadius: 8,
+                                borderWidth: 1,
+                                borderColor: '#FCA5A5',
+                                backgroundColor: '#FEF2F2',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Ionicons name="trash-outline" size={18} color="#991B1B" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ))}
+                      <TouchableOpacity
+                        onPress={addClosureMaterialRow}
+                        disabled={isClosingIncident}
+                        style={{
+                          alignSelf: 'flex-start',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          backgroundColor: '#FFFFFF',
+                          borderWidth: 1,
+                          borderColor: '#FCD34D',
+                        }}
+                      >
+                        <Ionicons name="add" size={18} color="#111827" />
+                        <Text style={{ color: '#111827', fontWeight: '900' }}>Ajouter un matériel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
+
                 {/* Actions */}
                 <View style={{ marginBottom: 32 }}>
                   {selectedIncident.status !== 'closed' && (
@@ -459,12 +714,19 @@ export default function Home() {
                         borderWidth: 1,
                         borderColor: '#DAF22C'
                       }}
-                      onPress={() => handleCloseIncident(selectedIncident.id)}
+                      onPress={() => handleCloseIncident(selectedIncident)}
+                      disabled={isClosingIncident}
                     >
-                      <Ionicons name="checkmark-circle" size={24} color="#111827" style={{ marginRight: 8 }} />
-                      <Text style={{ color: '#111827', fontWeight: '900', fontSize: 16, letterSpacing: 1, textTransform: 'uppercase' }}>
-                        CLÔTURER L&apos;INCIDENT
-                      </Text>
+                      {isClosingIncident ? (
+                        <ActivityIndicator color="#111827" />
+                      ) : (
+                        <>
+                          <Ionicons name="checkmark-circle" size={24} color="#111827" style={{ marginRight: 8 }} />
+                          <Text style={{ color: '#111827', fontWeight: '900', fontSize: 16, letterSpacing: 1, textTransform: 'uppercase' }}>
+                            {showClosureMaterials && selectedIncidentMaterials.length === 0 ? 'VALIDER LA CLÔTURE' : "CLÔTURER L'INCIDENT"}
+                          </Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   )}
                 </View>
@@ -478,4 +740,10 @@ export default function Home() {
       </Modal>
     </SafeAreaView>
   );
+}
+
+function formatQuantity(value: number): string {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }

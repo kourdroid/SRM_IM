@@ -1,4 +1,11 @@
+import { SrmSkeletonBlock, SrmSkeletonCard } from '@/components/ui/srm';
 import CustomBarChart from '@/components/CustomBarChart';
+import {
+  buildEquipmentSummary,
+  createEmptyMaterialFormRow,
+  normalizeMaterialRows,
+  type MaterialFormRow,
+} from '@/lib/materials';
 import { type ChartDataPoint, type DashboardStats } from '@/src/core/entities/admin';
 import { AdminService } from '@/src/core/services/adminService';
 import { IncidentAdminService, type Incident } from '@/src/core/services/incidentAdminService';
@@ -7,13 +14,13 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   Modal,
@@ -48,6 +55,9 @@ export default function AdminDashboard() {
   const [resolutionStats, setResolutionStats] = useState({ avgDays: 0, maxDays: 0 });
   const [latestIncidents, setLatestIncidents] = useState<Incident[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [showClosureMaterials, setShowClosureMaterials] = useState(false);
+  const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
+  const [isClosingIncident, setIsClosingIncident] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -73,13 +83,79 @@ export default function AdminDashboard() {
     }
   };
 
+  const openIncidentDetails = (incident: Incident) => {
+    setSelectedIncident(incident);
+    setShowClosureMaterials(false);
+    setClosureMaterialRows([createEmptyMaterialFormRow()]);
+  };
+
+  const addClosureMaterialRow = () => {
+    setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
+  };
+
+  const removeClosureMaterialRow = (id: string) => {
+    setClosureMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
+  };
+
+  const updateClosureMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
+    setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
+  };
+
   const handleToggleStatusInModal = async (incident: Incident) => {
     const newStatus = incident.status === 'open' ? 'closed' : 'open';
+    const existingMaterials = incident.materials || [];
+    const normalizedMaterials = normalizeMaterialRows(closureMaterialRows);
+    if (incident.status === 'open' && existingMaterials.length === 0 && !showClosureMaterials) {
+      setShowClosureMaterials(true);
+      return;
+    }
+    if (incident.status === 'open' && normalizedMaterials === null) {
+      Alert.alert('Matériel invalide', 'Chaque ligne de matériel doit avoir un nom et une quantité positive.');
+      return;
+    }
+    if (incident.status === 'open' && existingMaterials.length === 0 && (normalizedMaterials?.length ?? 0) === 0) {
+      Alert.alert('Matériel requis', "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
+      return;
+    }
+    const closureMaterials = normalizedMaterials ?? [];
+
     try {
-      await IncidentAdminService.updateIncidentStatus({ id: incident.id, status: newStatus });
+      setIsClosingIncident(true);
+      const nextMaterials = incident.status === 'open' && closureMaterials.length > 0
+        ? closureMaterials.map(material => ({
+          material_name: material.material_name,
+          quantity: material.quantity,
+        }))
+        : existingMaterials;
+      const nextEquipmentUsed = closureMaterials.length > 0
+        ? buildEquipmentSummary(closureMaterials)
+        : incident.equipment_used;
+
+      if (incident.status === 'open' && closureMaterials.length > 0) {
+        await IncidentAdminService.closeIncidentWithMaterials({
+          id: incident.id,
+          materials: closureMaterials,
+        });
+      } else {
+        await IncidentAdminService.updateIncidentStatus({ id: incident.id, status: newStatus });
+      }
       // Update local state
-      setLatestIncidents(prev => prev.map(i => i.id === incident.id ? { ...i, status: newStatus } : i));
-      setSelectedIncident(prev => prev && prev.id === incident.id ? { ...prev, status: newStatus } : prev);
+      setLatestIncidents(prev => prev.map(i => i.id === incident.id ? {
+        ...i,
+        status: newStatus,
+        materials: nextMaterials,
+        equipment_used: nextEquipmentUsed,
+        materials_summary: nextEquipmentUsed,
+      } : i));
+      setSelectedIncident(prev => prev && prev.id === incident.id ? {
+        ...prev,
+        status: newStatus,
+        materials: nextMaterials,
+        equipment_used: nextEquipmentUsed,
+        materials_summary: nextEquipmentUsed,
+      } : prev);
+      setShowClosureMaterials(false);
+      setClosureMaterialRows([createEmptyMaterialFormRow()]);
       
       // Refresh KPI statistics
       const [newStats, resolution] = await Promise.all([
@@ -89,9 +165,11 @@ export default function AdminDashboard() {
       setStats(newStats);
       setResolutionStats(resolution);
       
-      Alert.alert('Succès', `L'incident a été marqué comme ${newStatus === 'closed' ? 'fermé' : 'ouvert'}.`);
+      Alert.alert('Succès', `L'incident a été ${newStatus === 'closed' ? 'clôturé' : 'rouvert'}.`);
     } catch (e: any) {
       Alert.alert('Erreur', e.message || 'Impossible de mettre à jour le statut');
+    } finally {
+      setIsClosingIncident(false);
     }
   };
 
@@ -102,11 +180,7 @@ export default function AdminDashboard() {
   };
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.accent} />
-      </View>
-    );
+    return <AdminDashboardSkeleton />;
   }
 
   return (
@@ -120,7 +194,7 @@ export default function AdminDashboard() {
         <View style={styles.headerSection}>
           <View style={styles.headerInner}>
             <View>
-              <Text style={styles.headerGreeting}>ONEE SRM</Text>
+              <Text style={styles.headerGreeting}>SRM</Text>
               <Text style={styles.headerTitle}>Tableau de bord</Text>
             </View>
             <View style={styles.headerBadge}>
@@ -159,7 +233,7 @@ export default function AdminDashboard() {
             <View style={[styles.statIconContainer, { backgroundColor: '#F0FDF4' }]}>
               <Ionicons name="checkmark-circle-outline" size={18} color={COLORS.statGreen} />
             </View>
-            <Text style={styles.statLabel}>Résolus</Text>
+            <Text style={styles.statLabel}>Clôturés</Text>
             <Text style={[styles.statValue, { color: COLORS.statGreen }]}>
               {stats.closed}
             </Text>
@@ -179,7 +253,7 @@ export default function AdminDashboard() {
 
         {/* ─── Resolution KPIs (30 days average / max) ─────────────── */}
         <View style={styles.resolutionContainer}>
-          <Text style={styles.sectionTitle}>Performance de Résolution (30j)</Text>
+          <Text style={styles.sectionTitle}>Performance de clôture (30j)</Text>
           <View style={styles.resolutionRow}>
             <View style={styles.resolutionKpi}>
               <Text style={styles.resolutionValue}>
@@ -216,7 +290,7 @@ export default function AdminDashboard() {
               <TouchableOpacity
                 key={item.id}
                 style={styles.incidentCard}
-                onPress={() => setSelectedIncident(item)}
+                onPress={() => openIncidentDetails(item)}
                 activeOpacity={0.7}
               >
                 <View style={styles.incidentCardMain}>
@@ -306,7 +380,7 @@ export default function AdminDashboard() {
                         styles.statusBadgeText,
                         { color: selectedIncident.status === 'open' ? COLORS.statRed : COLORS.statGreen }
                       ]}>
-                        {selectedIncident.status === 'open' ? 'EN COURS' : 'RÉSOLU'}
+                        {selectedIncident.status === 'open' ? 'EN COURS' : 'CLÔTURÉ'}
                       </Text>
                     </View>
                     <Text style={styles.modalDate}>
@@ -319,6 +393,13 @@ export default function AdminDashboard() {
                     <Text style={styles.detailLabel}>{"Type d'incident"}</Text>
                     <Text style={styles.detailValue}>{selectedIncident.incident_type}</Text>
                   </View>
+
+                  {selectedIncident.type === 'MT' && selectedIncident.depart_hta ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Départ HTA</Text>
+                      <Text style={styles.detailValue}>{selectedIncident.depart_hta}</Text>
+                    </View>
+                  ) : null}
 
                   {/* Commune & Village */}
                   <View style={styles.detailRow}>
@@ -366,7 +447,18 @@ export default function AdminDashboard() {
                   {/* Equipment */}
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Matériel utilisé</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Aucun'}</Text>
+                    {selectedIncident.materials && selectedIncident.materials.length > 0 ? (
+                      <View style={styles.materialList}>
+                        {selectedIncident.materials.map((material) => (
+                          <View key={`${material.material_name}-${material.quantity}`} style={styles.materialRow}>
+                            <Text style={styles.materialName}>{material.material_name}</Text>
+                            <Text style={styles.materialQuantity}>x{formatQuantity(material.quantity)}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Aucun'}</Text>
+                    )}
                   </View>
 
                   {/* Description */}
@@ -410,6 +502,55 @@ export default function AdminDashboard() {
                   )}
                 </ScrollView>
 
+                {selectedIncident.status === 'open' && showClosureMaterials && (!selectedIncident.materials || selectedIncident.materials.length === 0) ? (
+                  <View style={styles.closureMaterialBlock}>
+                    <Text style={styles.closureMaterialTitle}>MATÉRIEL OBLIGATOIRE</Text>
+                    <Text style={styles.closureMaterialHelp}>
+                      Renseignez le matériel utilisé avant de clôturer cet incident.
+                    </Text>
+                    <View style={styles.closureMaterialRows}>
+                      {closureMaterialRows.map((row, index) => (
+                        <View key={row.id} style={styles.closureMaterialRow}>
+                          <TextInput
+                            style={styles.closureMaterialNameInput}
+                            value={row.materialName}
+                            onChangeText={(value) => updateClosureMaterialRow(row.id, { materialName: value })}
+                            placeholder={index === 0 ? 'Matériel' : 'Autre matériel'}
+                            placeholderTextColor={COLORS.textMuted}
+                            editable={!isClosingIncident}
+                          />
+                          <TextInput
+                            style={styles.closureMaterialQuantityInput}
+                            value={row.quantity}
+                            onChangeText={(value) => updateClosureMaterialRow(row.id, { quantity: value })}
+                            placeholder="Qté"
+                            placeholderTextColor={COLORS.textMuted}
+                            keyboardType="decimal-pad"
+                            editable={!isClosingIncident}
+                          />
+                          {closureMaterialRows.length > 1 ? (
+                            <TouchableOpacity
+                              style={styles.closureMaterialRemove}
+                              onPress={() => removeClosureMaterialRow(row.id)}
+                              disabled={isClosingIncident}
+                            >
+                              <Ionicons name="trash-outline" size={18} color="#991B1B" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ))}
+                      <TouchableOpacity
+                        style={styles.closureMaterialAdd}
+                        onPress={addClosureMaterialRow}
+                        disabled={isClosingIncident}
+                      >
+                        <Ionicons name="add" size={18} color={COLORS.textPrimary} />
+                        <Text style={styles.closureMaterialAddText}>Ajouter un matériel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
+
                 {/* Modal Footer Actions */}
                 <View style={styles.modalFooter}>
                   <TouchableOpacity
@@ -418,6 +559,7 @@ export default function AdminDashboard() {
                       { backgroundColor: selectedIncident.status === 'open' ? COLORS.statGreen : COLORS.statRed }
                     ]}
                     onPress={() => handleToggleStatusInModal(selectedIncident)}
+                    disabled={isClosingIncident}
                   >
                     <Ionicons
                       name={selectedIncident.status === 'open' ? "checkmark-circle-outline" : "alert-circle-outline"}
@@ -425,7 +567,7 @@ export default function AdminDashboard() {
                       color={COLORS.white}
                     />
                     <Text style={styles.actionStatusBtnText}>
-                      {selectedIncident.status === 'open' ? 'Marquer comme Résolu' : 'Rouvrir l\'incident'}
+                      {selectedIncident.status === 'open' ? 'Clôturer l\'incident' : 'Rouvrir l\'incident'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -438,15 +580,56 @@ export default function AdminDashboard() {
   );
 }
 
+function AdminDashboardSkeleton() {
+  return (
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerSection}>
+          <View style={styles.headerInner}>
+            <View style={{ flex: 1 }}>
+              <SrmSkeletonBlock width={48} height={12} style={styles.darkSkeletonBlock} />
+              <SrmSkeletonBlock width="58%" height={28} style={[styles.darkSkeletonBlock, { marginTop: 8 }]} />
+            </View>
+            <SrmSkeletonBlock width={92} height={30} radius={20} style={styles.darkSkeletonBlock} />
+          </View>
+        </View>
+
+        <View style={styles.statsGrid}>
+          {Array.from({ length: 4 }).map((_, index) => (
+            <View key={index} style={styles.statCard}>
+              <SrmSkeletonBlock width={34} height={34} radius={8} style={{ marginBottom: 10 }} />
+              <SrmSkeletonBlock width="56%" height={12} />
+              <SrmSkeletonBlock width="42%" height={28} style={{ marginTop: 8 }} />
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.resolutionContainer}>
+          <SrmSkeletonBlock width="66%" height={18} />
+          <View style={styles.resolutionRow}>
+            <SrmSkeletonCard rows={2} style={styles.dashboardSkeletonMetric} />
+            <SrmSkeletonCard rows={2} style={styles.dashboardSkeletonMetric} />
+          </View>
+        </View>
+
+        <View style={styles.chartContainer}>
+          <SrmSkeletonBlock width="52%" height={18} />
+          <SrmSkeletonBlock width="100%" height={180} radius={8} style={{ marginTop: 16 }} />
+        </View>
+
+        <View style={styles.latestIncidentsSection}>
+          <SrmSkeletonBlock width="62%" height={18} style={{ marginBottom: 12 }} />
+          <SrmSkeletonCard rows={3} />
+          <SrmSkeletonCard rows={3} />
+          <SrmSkeletonCard rows={3} />
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
 // ─── Styles ────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
-
   scrollView: {
     flex: 1,
   },
@@ -815,6 +998,120 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontWeight: '600',
   },
+  materialList: {
+    gap: 8,
+  },
+
+  materialRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+
+  materialName: {
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
+    flex: 1,
+  },
+
+  materialQuantity: {
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    fontWeight: '900',
+  },
+
+  closureMaterialBlock: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    backgroundColor: '#FFFBEB',
+  },
+
+  closureMaterialTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#92400E',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 6,
+  },
+
+  closureMaterialHelp: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#78350F',
+    marginBottom: 12,
+  },
+
+  closureMaterialRows: {
+    gap: 10,
+  },
+
+  closureMaterialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  closureMaterialNameInput: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    padding: 12,
+    color: COLORS.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  closureMaterialQuantityInput: {
+    width: 84,
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    padding: 12,
+    color: COLORS.textPrimary,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+
+  closureMaterialRemove: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  closureMaterialAdd: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+
+  closureMaterialAddText: {
+    color: COLORS.textPrimary,
+    fontWeight: '900',
+  },
 
   mapLinkText: {
     fontSize: 12,
@@ -881,4 +1178,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.white,
   },
+  darkSkeletonBlock: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  dashboardSkeletonMetric: {
+    flex: 1,
+    marginBottom: 0,
+    backgroundColor: COLORS.background,
+  },
 });
+
+function formatQuantity(value: number): string {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}

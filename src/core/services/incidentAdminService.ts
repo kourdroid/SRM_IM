@@ -1,6 +1,12 @@
 import { supabase } from '@/lib/supabase';
+import { buildEquipmentSummary, formatMaterialsSummary, type IncidentMaterialInput } from '@/lib/materials';
 import * as Network from 'expo-network';
-import { AdminIncidentUpdateSchema, type AdminIncidentUpdate } from '../entities/admin';
+import {
+    AdminIncidentClosureSchema,
+    AdminIncidentUpdateSchema,
+    type AdminIncidentClosure,
+    type AdminIncidentUpdate,
+} from '../entities/admin';
 
 export interface Incident {
     id: string;
@@ -11,6 +17,7 @@ export interface Incident {
     village: string;
     status: 'open' | 'closed';
     incident_type: string;
+    depart_hta?: string | null;
     commune_id: string;
     commune_name?: string;
     equipment_used: string;
@@ -28,6 +35,13 @@ export interface Incident {
     latitude?: number | null;
     longitude?: number | null;
     media_urls?: string[];
+    materials?: IncidentMaterialSummary[];
+    materials_summary?: string;
+}
+
+export interface IncidentMaterialSummary {
+    material_name: string;
+    quantity: number;
 }
 
 export interface IncidentFilters {
@@ -51,6 +65,7 @@ type IncidentListRecord = {
     village: string;
     status: 'open' | 'closed';
     incident_type: string;
+    depart_hta: string | null;
     commune_id: string;
     communes?: { name: string | null } | { name: string | null }[] | null;
     equipment_used: string | null;
@@ -66,6 +81,7 @@ type IncidentListRecord = {
     latitude: number | null;
     longitude: number | null;
     media_urls: unknown;
+    incident_materials?: unknown;
 };
 
 const INCIDENT_LIST_COLUMNS = `
@@ -76,6 +92,7 @@ const INCIDENT_LIST_COLUMNS = `
     village,
     status,
     incident_type,
+    depart_hta,
     commune_id,
     equipment_used,
     description,
@@ -90,6 +107,7 @@ const INCIDENT_LIST_COLUMNS = `
     latitude,
     longitude,
     media_urls,
+    incident_materials(material_name, quantity),
     communes(name)
 `;
 
@@ -144,7 +162,8 @@ export const IncidentAdminService = {
                 query = query.lt('created_at', end.toISOString().split('T')[0]);
             }
             if (filters.search && filters.search.trim() !== '') {
-                query = query.or(`description.ilike.%${filters.search.trim()}%,village.ilike.%${filters.search.trim()}%`);
+                const search = filters.search.trim();
+                query = query.or(`description.ilike.%${search}%,village.ilike.%${search}%,depart_hta.ilike.%${search}%`);
             }
         }
 
@@ -178,6 +197,7 @@ export const IncidentAdminService = {
                 village: item.village,
                 status: item.status,
                 incident_type: item.incident_type,
+                depart_hta: item.depart_hta || null,
                 commune_id: item.commune_id,
                 commune_name: getEmbeddedCommuneName(item.communes),
                 equipment_used: item.equipment_used || '',
@@ -194,7 +214,12 @@ export const IncidentAdminService = {
                 updated_at: item.updated_at,
                 latitude: item.latitude ?? null,
                 longitude: item.longitude ?? null,
-                media_urls: parseMediaUrls(item.media_urls)
+                media_urls: parseMediaUrls(item.media_urls),
+                materials: parseIncidentMaterials(item.incident_materials),
+                materials_summary: formatMaterialsSummary(
+                    parseIncidentMaterials(item.incident_materials),
+                    item.equipment_used || ''
+                ),
             }));
         }
 
@@ -216,10 +241,7 @@ export const IncidentAdminService = {
         const validPayload = AdminIncidentUpdateSchema.parse(updatePayload);
 
         // 2. Strict Offline check (prevent write-skew)
-        const networkState = await Network.getNetworkStateAsync();
-        if (!networkState.isConnected || !networkState.isInternetReachable) {
-            throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
-        }
+        await assertOnline();
 
         // 3. Online mutate
         const { error } = await supabase
@@ -228,8 +250,46 @@ export const IncidentAdminService = {
             .eq('id', validPayload.id);
 
         if (error) throw new Error(`Mutation failed: ${error.message}`);
+    },
+
+    async closeIncidentWithMaterials(closurePayload: AdminIncidentClosure): Promise<void> {
+        const validPayload = AdminIncidentClosureSchema.parse(closurePayload);
+
+        await assertOnline();
+
+        const materials: IncidentMaterialInput[] = validPayload.materials.map((material) => ({
+            client_material_id: material.client_material_id,
+            material_name: material.material_name,
+            quantity: material.quantity,
+        }));
+
+        const { error: materialsError } = await supabase.rpc('upsert_incident_materials', {
+            p_incident_id: validPayload.id,
+            p_materials: materials,
+        });
+
+        if (materialsError) {
+            throw new Error(`Material update failed: ${materialsError.message}`);
+        }
+
+        const { error } = await supabase
+            .from('incidents')
+            .update({
+                status: 'closed',
+                equipment_used: buildEquipmentSummary(materials),
+            })
+            .eq('id', validPayload.id);
+
+        if (error) throw new Error(`Mutation failed: ${error.message}`);
     }
 };
+
+async function assertOnline(): Promise<void> {
+    const networkState = await Network.getNetworkStateAsync();
+    if (!networkState.isConnected || !networkState.isInternetReachable) {
+        throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
+    }
+}
 
 function getEmbeddedCommuneName(
     value: IncidentListRecord['communes']
@@ -244,4 +304,16 @@ function parseMediaUrls(value: unknown): string[] {
     return Array.isArray(value)
         ? value.filter((url): url is string => typeof url === 'string')
         : [];
+}
+
+function parseIncidentMaterials(value: unknown): IncidentMaterialSummary[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+        const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        const materialName = typeof record.material_name === 'string' ? record.material_name : '';
+        const quantity = Number(record.quantity);
+        return materialName && Number.isFinite(quantity) && quantity > 0
+            ? [{ material_name: materialName, quantity }]
+            : [];
+    });
 }

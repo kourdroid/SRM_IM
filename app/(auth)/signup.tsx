@@ -1,11 +1,13 @@
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
+import { PENDING_APPROVAL_ROUTE } from '@/src/core/constants/routes';
 import { supabase, toSupabaseUserMessage } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
@@ -20,6 +22,8 @@ export default function Signup() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  const emailInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
 
   async function signUpWithEmail() {
     if (!name.trim()) {
@@ -43,7 +47,6 @@ export default function Signup() {
         options: {
           data: {
             name: name.trim(),
-            role: 'field',
           },
         },
       });
@@ -52,9 +55,10 @@ export default function Signup() {
         Alert.alert('Erreur', toSupabaseUserMessage(error));
       } else if (user) {
         if (!session) {
-          Alert.alert('Vérifiez votre e-mail', 'Un lien de confirmation vous a été envoyé.');
+          Alert.alert('Vérifiez votre e-mail', 'Un lien de confirmation vous a été envoyé. Après confirmation, un administrateur devra approuver votre compte.');
         } else {
-          router.replace('/');
+          Alert.alert('Compte créé', 'Votre compte attend maintenant l’approbation d’un administrateur.');
+          router.replace(PENDING_APPROVAL_ROUTE);
         }
       }
     } catch (error) {
@@ -66,75 +70,88 @@ export default function Signup() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* ── Brand Mark ── */}
-      <View style={styles.brandSection}>
-        <Text style={styles.brandName}>ONEE</Text>
-        <Text style={styles.brandSub}>SRM — Gestion des Incidents</Text>
-        <Text style={styles.welcomeText}>Créer un compte</Text>
-      </View>
-
-      {/* ── Form ── */}
-      <View style={styles.form}>
-        <View style={styles.inputRow}>
-          <Ionicons name="person-outline" size={20} color={COLORS.textMuted} />
-          <TextInput
-            style={styles.input}
-            placeholder="Nom complet"
-            placeholderTextColor={COLORS.textMuted}
-            value={name}
-            onChangeText={setName}
-            autoComplete="name"
-          />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardView}
+      >
+        {/* ── Brand Mark ── */}
+        <View style={styles.brandSection}>
+          <Text style={styles.brandName}>SRM</Text>
+          <Text style={styles.brandSub}>Gestion des Incidents</Text>
+          <Text style={styles.welcomeText}>Créer un compte</Text>
         </View>
 
-        <View style={styles.inputRow}>
-          <Ionicons name="mail-outline" size={20} color={COLORS.textMuted} />
-          <TextInput
-            style={styles.input}
-            placeholder="Adresse e-mail"
-            placeholderTextColor={COLORS.textMuted}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
-          />
-        </View>
+        {/* ── Form ── */}
+        <View style={styles.form}>
+          <View style={styles.inputRow}>
+            <Ionicons name="person-outline" size={20} color={COLORS.textMuted} />
+            <TextInput
+              style={styles.input}
+              placeholder="Nom complet"
+              placeholderTextColor={COLORS.textMuted}
+              value={name}
+              onChangeText={setName}
+              autoComplete="name"
+              returnKeyType="next"
+              onSubmitEditing={() => emailInputRef.current?.focus()}
+            />
+          </View>
 
-        <View style={styles.inputRow}>
-          <Ionicons name="lock-closed-outline" size={20} color={COLORS.textMuted} />
-          <TextInput
-            style={styles.input}
-            placeholder="Mot de passe (6+ caractères)"
-            placeholderTextColor={COLORS.textMuted}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
+          <View style={styles.inputRow}>
+            <Ionicons name="mail-outline" size={20} color={COLORS.textMuted} />
+            <TextInput
+              ref={emailInputRef}
+              style={styles.input}
+              placeholder="Adresse e-mail"
+              placeholderTextColor={COLORS.textMuted}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordInputRef.current?.focus()}
+            />
+          </View>
 
-        <TouchableOpacity
-          style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
-          onPress={signUpWithEmail}
-          disabled={loading}
-          activeOpacity={0.85}
-        >
-          {loading ? (
-            <ActivityIndicator color={COLORS.textPrimary} />
-          ) : (
-            <Text style={styles.primaryBtnText}>S&apos;inscrire</Text>
-          )}
-        </TouchableOpacity>
+          <View style={styles.inputRow}>
+            <Ionicons name="lock-closed-outline" size={20} color={COLORS.textMuted} />
+            <TextInput
+              ref={passwordInputRef}
+              style={styles.input}
+              placeholder="Mot de passe (6+ caractères)"
+              placeholderTextColor={COLORS.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              returnKeyType="done"
+              onSubmitEditing={signUpWithEmail}
+            />
+          </View>
 
-        <View style={styles.footerRow}>
-          <Text style={styles.footerText}>Déjà un compte ? </Text>
-          <Link href="/(auth)/login" asChild>
-            <TouchableOpacity>
-              <Text style={styles.footerLink}>Se connecter</Text>
-            </TouchableOpacity>
-          </Link>
+          <TouchableOpacity
+            style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+            onPress={signUpWithEmail}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <ActivityIndicator color={COLORS.textPrimary} />
+            ) : (
+              <Text style={styles.primaryBtnText}>S&apos;inscrire</Text>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Déjà un compte ? </Text>
+            <Link href="/(auth)/login" asChild>
+              <TouchableOpacity>
+                <Text style={styles.footerLink}>Se connecter</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -144,6 +161,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.surface,
     paddingHorizontal: SPACING.xl,
+    justifyContent: 'center',
+  },
+  keyboardView: {
+    flex: 1,
     justifyContent: 'center',
   },
   brandSection: {

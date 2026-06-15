@@ -2,13 +2,12 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { initDatabase } from '@/db';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import SyncCoordinator from '@/components/SyncCoordinator';
-import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_700Bold,
-  useFonts,
-} from '@expo-google-fonts/inter';
+import { Sentry } from '@/lib/monitoring';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
@@ -29,7 +28,7 @@ function LoadingFallback() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -62,3 +61,5 @@ export default function RootLayout() {
     </Suspense>
   );
 }
+
+export default Sentry.wrap(RootLayout);

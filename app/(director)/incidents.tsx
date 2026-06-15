@@ -1,3 +1,4 @@
+import { SrmListSkeleton } from '@/components/ui/srm';
 import { clearLocalSupabaseSession } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { DirectorService, type DirectorIncident, type DirectorIncidentFilters } from '@/src/core/services/directorService';
@@ -124,10 +125,7 @@ export default function DirectorIncidents() {
       </View>
 
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator color={COLORS.textPrimary} />
-          <Text style={styles.loadingText}>Chargement des incidents...</Text>
-        </View>
+        <SrmListSkeleton count={7} style={styles.skeletonList} />
       ) : (
         <FlashList
           data={incidents}
@@ -241,6 +239,9 @@ function IncidentDetailModal({
                 <DetailRow label="Statut" value={incident.status === 'open' ? 'Ouvert' : 'Clôturé'} />
                 <DetailRow label="Réseau" value={incident.type} />
                 <DetailRow label="Type incident" value={incident.incident_type} />
+                {incident.type === 'MT' && incident.depart_hta ? (
+                  <DetailRow label="Départ HTA" value={incident.depart_hta} />
+                ) : null}
                 <DetailRow label="Commune" value={incident.commune_name || 'Commune inconnue'} />
                 <DetailRow label="Village" value={incident.village} />
                 <DetailRow label="Agent" value={incident.created_by_name || 'Agent inconnu'} />
@@ -251,7 +252,21 @@ function IncidentDetailModal({
                   label={incident.status === 'closed' ? 'Durée de traitement' : 'Ouvert depuis'}
                   value={formatIncidentDuration(incident)}
                 />
-                <DetailRow label="Matériel" value={incident.equipment_used || '-'} />
+                {incident.materials.length > 0 ? (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Matériel</Text>
+                    <View style={styles.materialList}>
+                      {incident.materials.map((material) => (
+                        <View key={`${material.material_name}-${material.quantity}`} style={styles.materialRow}>
+                          <Text style={styles.materialName}>{material.material_name}</Text>
+                          <Text style={styles.materialQuantity}>x{formatQuantity(material.quantity)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <DetailRow label="Matériel" value={incident.equipment_used || '-'} />
+                )}
                 <DetailRow label="Description" value={incident.description || '-'} />
 
                 {incident.latitude != null && incident.longitude != null ? (
@@ -327,6 +342,12 @@ function formatIncidentDuration(incident: DirectorIncident): string {
   if (days > 0) return `${days} j ${hours} h`;
   if (hours > 0) return `${hours} h ${minutes} min`;
   return `${minutes} min`;
+}
+
+function formatQuantity(value: number): string {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 const styles = StyleSheet.create({
@@ -417,15 +438,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.border,
     marginHorizontal: SPACING.xs,
   },
-  loadingContainer: {
+  skeletonList: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: SPACING.md,
-  },
-  loadingText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textSecondary,
   },
   listContent: {
     paddingHorizontal: SPACING.lg,
@@ -556,6 +570,25 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     color: COLORS.textPrimary,
     fontWeight: '700',
+  },
+  materialList: {
+    gap: SPACING.sm,
+  },
+  materialRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+  },
+  materialName: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
+    flex: 1,
+  },
+  materialQuantity: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    fontWeight: '900',
   },
   mapButton: {
     flexDirection: 'row',

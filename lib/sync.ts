@@ -1,12 +1,24 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { upsertCommunesFromServer } from '../db/communes';
 import {
-    deleteStaleSyncedIncidents,
+    getIncidentMaterialsByLocalId,
+    markIncidentMaterialsSynced,
+} from '../db/incidentMaterials';
+import {
+    upsertDepartHtaOptionsFromServer,
+    upsertIncidentTypeOptionsFromServer,
+    type RemoteDepartHtaOption,
+    type RemoteIncidentTypeOption,
+} from '../db/referenceOptions';
+import {
+    archiveStaleSyncedIncidents,
     deleteInvalidIncidents,
     getIncidentByLocalId,
     markIncidentSyncedWithRemoteId,
     markIncidentSyncFailed,
+    markIncidentSyncPending,
     markIncidentSyncing,
+    resetRetryableIncidentSyncFailures,
     updateIncidentMediaUrls,
     upsertIncidentsFromServer,
     type IncidentRow,
@@ -17,12 +29,14 @@ import {
     markSyncOperationDone,
     markSyncOperationFailed,
     markSyncOperationRunning,
+    pruneCompletedSyncOperations,
     recoverMissingMediaUploadOperations,
+    resetRetryableFailedSyncOperations,
     resetRunningSyncOperations,
     type SyncOperationRow,
 } from '../db/syncOperations';
 import { getSyncMetadata, setSyncMetadata } from '../db/syncMetadata';
-import { uploadToSupabase } from './imageUtils';
+import { deleteLocalMedia, uploadToSupabase } from './imageUtils';
 import { isSupabaseNetworkError, supabase } from './supabase';
 
 interface RemoteIncident {
@@ -37,6 +51,7 @@ type PullIncident = RemoteIncident & {
     date?: string | null;
     village?: string | null;
     incident_type?: string | null;
+    depart_hta?: string | null;
     commune_id?: string | null;
     equipment_used?: string | null;
     description?: string | null;
@@ -48,6 +63,7 @@ type PullIncident = RemoteIncident & {
     gps_accuracy?: number | null;
     created_at?: string | null;
     updated_at?: string | null;
+    archived_at?: string | null;
 };
 
 interface UploadPayload {
@@ -59,6 +75,7 @@ interface AttachMediaPayload {
     remoteUrl: string;
     storagePath?: string;
     clientMediaId?: string;
+    localUri?: string;
 }
 
 interface StatusPayload {
@@ -70,6 +87,7 @@ export interface SyncOptions {
     forcePull?: boolean;
     forceReferenceData?: boolean;
     operationBatchSize?: number;
+    maxDurationMs?: number;
 }
 
 interface SyncProcessResult {
@@ -85,6 +103,7 @@ const INCIDENT_PULL_COLUMNS = [
     'village',
     'status',
     'incident_type',
+    'depart_hta',
     'commune_id',
     'equipment_used',
     'description',
@@ -97,16 +116,66 @@ const INCIDENT_PULL_COLUMNS = [
     'media_urls',
     'created_at',
     'updated_at',
+    'archived_at',
 ].join(', ');
 
 const INCIDENT_PULL_PAGE_SIZE = 100;
-const COMMUNE_PULL_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const REFERENCE_PULL_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_SYNC_BUDGET_MS = 20_000;
+let activeSync: Promise<void> | null = null;
+let queuedSyncRequest: { db: SQLiteDatabase; userId?: string; options: SyncOptions } | null = null;
 
 export async function syncAll(db: SQLiteDatabase, userId?: string, options: SyncOptions = {}): Promise<void> {
+    queuedSyncRequest = queuedSyncRequest
+        ? {
+            db,
+            userId,
+            options: mergeSyncOptions(queuedSyncRequest.options, options),
+        }
+        : { db, userId, options };
+
+    if (activeSync) {
+        return activeSync;
+    }
+
+    activeSync = drainSyncQueue().finally(() => {
+        activeSync = null;
+    });
+    return activeSync;
+}
+
+async function drainSyncQueue(): Promise<void> {
+    while (queuedSyncRequest) {
+        const request = queuedSyncRequest;
+        queuedSyncRequest = null;
+        await executeSync(request.db, request.userId, request.options);
+    }
+}
+
+function mergeSyncOptions(current: SyncOptions, next: SyncOptions): SyncOptions {
+    return {
+        reason: current.reason === 'manual' || next.reason === 'manual'
+            ? 'manual'
+            : next.reason || current.reason,
+        forcePull: current.forcePull === true || next.forcePull === true,
+        forceReferenceData: current.forceReferenceData === true || next.forceReferenceData === true,
+        operationBatchSize: Math.max(current.operationBatchSize ?? 0, next.operationBatchSize ?? 0) || undefined,
+        maxDurationMs: Math.max(current.maxDurationMs ?? 0, next.maxDurationMs ?? 0) || undefined,
+    };
+}
+
+async function executeSync(db: SQLiteDatabase, userId?: string, options: SyncOptions = {}): Promise<void> {
     debugLog('Sync: Starting...', options.reason || 'unknown');
 
     try {
         await resetRunningSyncOperations(db);
+        if (shouldResetRetryBackoff(options.reason)) {
+            const resetOps = await resetRetryableFailedSyncOperations(db);
+            const resetIncidents = await resetRetryableIncidentSyncFailures(db);
+            if (resetOps > 0 || resetIncidents > 0) {
+                debugLog(`Sync: Reset ${resetOps} retryable operation(s), ${resetIncidents} incident status flag(s)`);
+            }
+        }
         await recoverMissingMediaUploadOperations(db);
 
         const invalidCount = await deleteInvalidIncidents(db);
@@ -114,15 +183,20 @@ export async function syncAll(db: SQLiteDatabase, userId?: string, options: Sync
             console.warn(`Sync: Marked ${invalidCount} incident(s) as failed because commune_id is invalid`);
         }
 
-        await pullCommunes(db, options);
+        await pullReferenceData(db, options);
         await pullIncidents(db, userId, options);
-        const result = await processSyncOperations(db, options.operationBatchSize ?? 20);
+        const result = await processSyncOperations(
+            db,
+            options.operationBatchSize ?? 20,
+            options.maxDurationMs ?? DEFAULT_SYNC_BUDGET_MS
+        );
         if (result.affectedRemoteIncidentIds.length > 0) {
             await pullIncidentsByIds(db, result.affectedRemoteIncidentIds);
         } else if (result.remoteWriteCount > 0) {
             await pullIncidents(db, userId, { ...options, forcePull: true });
         }
 
+        await pruneCompletedSyncOperations(db);
         debugLog('Sync: Complete');
     } catch (error) {
         if (isSupabaseNetworkError(error)) {
@@ -138,10 +212,16 @@ export async function sync(db: SQLiteDatabase, userId?: string): Promise<void> {
     return syncAll(db, userId);
 }
 
+async function pullReferenceData(db: SQLiteDatabase, options: SyncOptions): Promise<void> {
+    await pullCommunes(db, options);
+    await pullIncidentTypeOptions(db, options);
+    await pullDepartHtaOptions(db, options);
+}
+
 async function pullCommunes(db: SQLiteDatabase, options: SyncOptions): Promise<void> {
     const count = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM communes');
     const lastPulledAt = await getSyncMetadata(db, 'communes:lastPulledAt');
-    const isStale = !lastPulledAt || Date.now() - new Date(lastPulledAt).getTime() > COMMUNE_PULL_INTERVAL_MS;
+    const isStale = !lastPulledAt || Date.now() - new Date(lastPulledAt).getTime() > REFERENCE_PULL_INTERVAL_MS;
     const shouldPull = options.forceReferenceData || options.reason === 'manual' || isStale || (count?.count ?? 0) === 0;
 
     if (!shouldPull) {
@@ -166,9 +246,95 @@ async function pullCommunes(db: SQLiteDatabase, options: SyncOptions): Promise<v
     }
 }
 
+async function pullIncidentTypeOptions(db: SQLiteDatabase, options: SyncOptions): Promise<void> {
+    const count = await db.getFirstAsync<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM incident_type_options WHERE active = 1'
+    );
+    const lastPulledAt = await getSyncMetadata(db, 'reference:incidentTypes:lastPulledAt');
+    const isStale = !lastPulledAt || Date.now() - new Date(lastPulledAt).getTime() > REFERENCE_PULL_INTERVAL_MS;
+    const shouldPull = options.forceReferenceData || options.reason === 'manual' || isStale || (count?.count ?? 0) === 0;
+
+    if (!shouldPull) {
+        return;
+    }
+
+    const { data, error } = await supabase
+        .from('incident_type_options')
+        .select('id, network_type, name, active, sort_order, updated_at')
+        .eq('active', true)
+        .order('network_type', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+
+    if (error) {
+        if (isSupabaseNetworkError(error)) {
+            console.warn("Sync: Failed to pull incident types because Supabase is unreachable");
+        } else {
+            console.error('Sync: Failed to pull incident types', error);
+        }
+        return;
+    }
+
+    const rows = (data || [])
+        .filter(isRemoteIncidentTypeOption)
+        .map(row => ({
+            id: row.id,
+            network_type: row.network_type,
+            name: row.name,
+            active: row.active,
+            sort_order: row.sort_order,
+            updated_at: row.updated_at,
+        }));
+    await upsertIncidentTypeOptionsFromServer(db, rows);
+    await setSyncMetadata(db, 'reference:incidentTypes:lastPulledAt', new Date().toISOString());
+    debugLog(`Sync: Pulled ${rows.length} incident type option(s)`);
+}
+
+async function pullDepartHtaOptions(db: SQLiteDatabase, options: SyncOptions): Promise<void> {
+    const count = await db.getFirstAsync<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM depart_hta_options WHERE active = 1'
+    );
+    const lastPulledAt = await getSyncMetadata(db, 'reference:departHta:lastPulledAt');
+    const isStale = !lastPulledAt || Date.now() - new Date(lastPulledAt).getTime() > REFERENCE_PULL_INTERVAL_MS;
+    const shouldPull = options.forceReferenceData || options.reason === 'manual' || isStale || (count?.count ?? 0) === 0;
+
+    if (!shouldPull) {
+        return;
+    }
+
+    const { data, error } = await supabase
+        .from('depart_hta_options')
+        .select('id, name, active, sort_order, updated_at')
+        .eq('active', true)
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+
+    if (error) {
+        if (isSupabaseNetworkError(error)) {
+            console.warn("Sync: Failed to pull Départs HTA because Supabase is unreachable");
+        } else {
+            console.error('Sync: Failed to pull Départs HTA', error);
+        }
+        return;
+    }
+
+    const rows = (data || [])
+        .filter(isRemoteDepartHtaOption)
+        .map(row => ({
+            id: row.id,
+            name: row.name,
+            active: row.active,
+            sort_order: row.sort_order,
+            updated_at: row.updated_at,
+        }));
+    await upsertDepartHtaOptionsFromServer(db, rows);
+    await setSyncMetadata(db, 'reference:departHta:lastPulledAt', new Date().toISOString());
+    debugLog(`Sync: Pulled ${rows.length} Départ HTA option(s)`);
+}
+
 async function pullIncidents(db: SQLiteDatabase, userId?: string, options: SyncOptions = {}): Promise<void> {
     const cursorKey = `incidents:lastPulledAt:${userId || 'all'}`;
-    const shouldFullPull = options.forcePull === true || options.reason === 'manual' || options.reason === 'startup';
+    const shouldFullPull = options.forcePull === true;
     const lastPulledAt = shouldFullPull ? null : await getSyncMetadata(db, cursorKey);
     let maxUpdatedAt = lastPulledAt;
     let offset = 0;
@@ -182,7 +348,7 @@ async function pullIncidents(db: SQLiteDatabase, userId?: string, options: SyncO
             .range(offset, offset + INCIDENT_PULL_PAGE_SIZE - 1);
 
         if (lastPulledAt) {
-            query = query.gt('updated_at', lastPulledAt);
+            query = query.gte('updated_at', getIncrementalPullLowerBound(lastPulledAt));
         }
 
         if (userId) {
@@ -219,9 +385,9 @@ async function pullIncidents(db: SQLiteDatabase, userId?: string, options: SyncO
     }
 
     if (shouldFullPull && userId) {
-        const deletedCount = await deleteStaleSyncedIncidents(db, userId, pulledRemoteIds);
-        if (deletedCount > 0) {
-            debugLog(`Sync: Removed ${deletedCount} stale local incident(s) missing from Supabase`);
+        const archivedCount = await archiveStaleSyncedIncidents(db, userId, pulledRemoteIds);
+        if (archivedCount > 0) {
+            debugLog(`Sync: Archived ${archivedCount} stale local incident(s) missing from Supabase`);
         }
     }
 
@@ -263,6 +429,7 @@ function mapPulledIncidents(data: PullIncident[]) {
         village: incident.village || 'Unknown',
         status: incident.status === 'closed' ? 'closed' as const : 'open' as const,
         incident_type: incident.incident_type || 'General',
+        depart_hta: incident.depart_hta || null,
         commune_id: incident.commune_id || null,
         equipment_used: incident.equipment_used || '',
         description: incident.description || undefined,
@@ -275,7 +442,23 @@ function mapPulledIncidents(data: PullIncident[]) {
         media_urls: Array.isArray(incident.media_urls) ? incident.media_urls : [],
         created_at: incident.created_at || new Date().toISOString(),
         updated_at: incident.updated_at || undefined,
+        archived_at: incident.archived_at || null,
     }));
+}
+
+function isRemoteIncidentTypeOption(value: unknown): value is RemoteIncidentTypeOption {
+    const row = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+    return Boolean(
+        row &&
+        typeof row.id === 'string' &&
+        (row.network_type === 'BT' || row.network_type === 'MT') &&
+        typeof row.name === 'string'
+    );
+}
+
+function isRemoteDepartHtaOption(value: unknown): value is RemoteDepartHtaOption {
+    const row = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+    return Boolean(row && typeof row.id === 'string' && typeof row.name === 'string');
 }
 
 function getMaxUpdatedAt(current: string | null, values: (string | undefined)[]): string | null {
@@ -286,10 +469,26 @@ function getMaxUpdatedAt(current: string | null, values: (string | undefined)[])
     }, current);
 }
 
-async function processSyncOperations(db: SQLiteDatabase, batchSize: number): Promise<SyncProcessResult> {
+function getIncrementalPullLowerBound(lastPulledAt: string): string {
+    const timestamp = new Date(lastPulledAt).getTime();
+    return Number.isFinite(timestamp)
+        ? new Date(timestamp - 1000).toISOString()
+        : lastPulledAt;
+}
+
+async function processSyncOperations(
+    db: SQLiteDatabase,
+    batchSize: number,
+    maxDurationMs: number
+): Promise<SyncProcessResult> {
     const result: SyncProcessResult = { affectedRemoteIncidentIds: [], remoteWriteCount: 0 };
+    const deadline = Date.now() + maxDurationMs;
 
     for (let pass = 0; pass < 4; pass += 1) {
+        if (Date.now() >= deadline) {
+            debugLog('Sync: Yielding with operations remaining');
+            return result;
+        }
         const operations = await getRunnableSyncOperations(db, batchSize);
         if (operations.length === 0) {
             if (pass === 0) debugLog('Sync: No queued operations');
@@ -299,6 +498,10 @@ async function processSyncOperations(db: SQLiteDatabase, batchSize: number): Pro
         debugLog(`Sync: Processing ${operations.length} queued operation(s)`);
 
         for (const operation of operations) {
+            if (Date.now() >= deadline) {
+                debugLog('Sync: Yielding with operations remaining');
+                return result;
+            }
             if (await shouldDeferOperationUntilIncidentExists(db, operation)) {
                 continue;
             }
@@ -316,10 +519,13 @@ async function processSyncOperations(db: SQLiteDatabase, batchSize: number): Pro
                 const message = error instanceof Error ? error.message : 'Unknown sync error';
                 const failure = classifySyncError(message);
                 await markSyncOperationFailed(db, operation.id, message, failure.errorCode, failure.isTerminal);
-                await markIncidentFailureForOperation(db, operation, message);
                 if (isSupabaseNetworkError(error)) {
+                    await markIncidentPendingForRetry(db, operation);
                     console.warn(`Sync: Operation ${operation.id} deferred`, message);
+                } else if (failure.isTerminal) {
+                    await markIncidentFailureForOperation(db, operation, message);
                 } else {
+                    await markIncidentPendingForRetry(db, operation);
                     console.error(`Sync: Operation ${operation.id} failed`, message);
                 }
             }
@@ -327,6 +533,10 @@ async function processSyncOperations(db: SQLiteDatabase, batchSize: number): Pro
     }
 
     return result;
+}
+
+function shouldResetRetryBackoff(reason?: SyncOptions['reason']): boolean {
+    return reason === 'manual' || reason === 'network' || reason === 'startup' || reason === 'foreground';
 }
 
 async function processSyncOperation(
@@ -345,6 +555,9 @@ async function processSyncOperation(
     if (operation.operation_type === 'update_incident_status') {
         return processStatusUpdate(db, operation);
     }
+    if (operation.operation_type === 'sync_materials') {
+        return processSyncMaterials(db, operation);
+    }
 
     return null;
 }
@@ -356,7 +569,8 @@ async function shouldDeferOperationUntilIncidentExists(
     if (
         operation.operation_type !== 'upload_media' &&
         operation.operation_type !== 'attach_media' &&
-        operation.operation_type !== 'update_incident_status'
+        operation.operation_type !== 'update_incident_status' &&
+        operation.operation_type !== 'sync_materials'
     ) {
         return false;
     }
@@ -379,7 +593,11 @@ async function markIncidentFailureForOperation(
     operation: SyncOperationRow,
     message: string
 ): Promise<void> {
-    if (operation.operation_type !== 'upload_media' && operation.operation_type !== 'attach_media') {
+    if (
+        operation.operation_type !== 'upload_media' &&
+        operation.operation_type !== 'attach_media' &&
+        operation.operation_type !== 'sync_materials'
+    ) {
         await markIncidentSyncFailed(db, operation.local_incident_id, message);
         return;
     }
@@ -396,6 +614,29 @@ async function markIncidentFailureForOperation(
          WHERE id = ?`,
         [message, operation.local_incident_id]
     );
+}
+
+async function markIncidentPendingForRetry(
+    db: SQLiteDatabase,
+    operation: SyncOperationRow
+): Promise<void> {
+    if (
+        operation.operation_type === 'sync_materials' ||
+        operation.operation_type === 'upload_media' ||
+        operation.operation_type === 'attach_media'
+    ) {
+        const incident = await getIncidentByLocalId(db, operation.local_incident_id);
+        if (incident?.remote_id) {
+            await db.runAsync(
+                `UPDATE incidents
+                 SET synced = 1, sync_status = 'synced', updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [operation.local_incident_id]
+            );
+            return;
+        }
+    }
+    await markIncidentSyncPending(db, operation.local_incident_id);
 }
 
 async function processCreateIncident(
@@ -452,7 +693,8 @@ async function processMediaUpload(
         incident.remote_id,
         upload.publicUrl,
         clientMediaId,
-        upload.storagePath
+        upload.storagePath,
+        payload.localUri
     );
     return incident.remote_id;
 }
@@ -478,7 +720,42 @@ async function processAttachMedia(
     const nextLocalUrls = uniqueUrls([...parseMediaUrls(incident.media_urls), payload.remoteUrl]);
     await updateIncidentMediaUrls(db, incident.id, nextLocalUrls);
     await markIncidentSyncedWithRemoteId(db, incident.id, remoteIncidentId);
+    if (payload.localUri) {
+        await deleteLocalMedia(payload.localUri);
+    }
     return remoteIncidentId;
+}
+
+async function processSyncMaterials(
+    db: SQLiteDatabase,
+    operation: SyncOperationRow
+): Promise<string> {
+    const incident = await requireIncident(db, operation.local_incident_id);
+    if (!incident.remote_id) {
+        throw new Error('Cannot sync materials before incident has remote_id');
+    }
+
+    const materials = await getIncidentMaterialsByLocalId(db, incident.id);
+    if (materials.length === 0) {
+        return incident.remote_id;
+    }
+
+    const { error } = await supabase.rpc('upsert_incident_materials', {
+        p_incident_id: incident.remote_id,
+        p_materials: materials.map((material) => ({
+            client_material_id: material.client_material_id,
+            material_name: material.material_name,
+            quantity: material.quantity,
+        })),
+    });
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    await markIncidentMaterialsSynced(db, incident.id, incident.remote_id);
+    await markIncidentSyncedWithRemoteId(db, incident.id, incident.remote_id);
+    return incident.remote_id;
 }
 
 async function processStatusUpdate(
@@ -559,6 +836,7 @@ function toRemoteInsert(incident: IncidentRow) {
         village: incident.village,
         status: incident.status,
         incident_type: incident.incident_type,
+        depart_hta: incident.type === 'MT' ? incident.depart_hta : null,
         commune_id: incident.commune_id,
         equipment_used: incident.equipment_used,
         description: incident.description,

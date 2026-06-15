@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { formatMaterialsSummary } from '@/lib/materials';
 
 export interface DirectorDashboardMetrics {
   total: number;
@@ -17,6 +18,7 @@ export interface DirectorIncident {
   village: string;
   status: 'open' | 'closed';
   incident_type: string;
+  depart_hta: string | null;
   commune_id: string | null;
   commune_name: string | null;
   equipment_used: string;
@@ -34,6 +36,13 @@ export interface DirectorIncident {
   latitude: number | null;
   longitude: number | null;
   media_urls: string[];
+  materials: DirectorIncidentMaterial[];
+  materials_summary: string;
+}
+
+export interface DirectorIncidentMaterial {
+  material_name: string;
+  quantity: number;
 }
 
 export interface DirectorIncidentFilters {
@@ -60,6 +69,7 @@ type DirectorIncidentRecord = {
   village?: unknown;
   status?: unknown;
   incident_type?: unknown;
+  depart_hta?: unknown;
   commune_id?: unknown;
   commune_name?: unknown;
   equipment_used?: unknown;
@@ -77,6 +87,8 @@ type DirectorIncidentRecord = {
   latitude?: unknown;
   longitude?: unknown;
   media_urls?: unknown;
+  materials?: unknown;
+  materials_summary?: unknown;
 };
 
 export const DirectorService = {
@@ -118,6 +130,8 @@ function parseDashboardMetrics(value: unknown): DirectorDashboardMetrics {
 
 function parseIncident(value: unknown): DirectorIncident {
   const record = asRecord(value) as DirectorIncidentRecord;
+  const materials = parseIncidentMaterials(record.materials);
+  const equipmentUsed = asString(record.equipment_used);
   return {
     id: asString(record.id),
     title: asOptionalString(record.title),
@@ -126,9 +140,10 @@ function parseIncident(value: unknown): DirectorIncident {
     village: asString(record.village),
     status: record.status === 'closed' ? 'closed' : 'open',
     incident_type: asString(record.incident_type),
+    depart_hta: asNullableString(record.depart_hta),
     commune_id: asNullableString(record.commune_id),
     commune_name: asNullableString(record.commune_name),
-    equipment_used: asString(record.equipment_used),
+    equipment_used: equipmentUsed,
     description: asString(record.description),
     reclamation: record.reclamation === true,
     reclamation_name: asOptionalString(record.reclamation_name),
@@ -143,6 +158,8 @@ function parseIncident(value: unknown): DirectorIncident {
     latitude: asNullableNumber(record.latitude),
     longitude: asNullableNumber(record.longitude),
     media_urls: parseMediaUrls(record.media_urls),
+    materials,
+    materials_summary: asString(record.materials_summary) || formatMaterialsSummary(materials, equipmentUsed),
   };
 }
 
@@ -180,4 +197,14 @@ function parseMediaUrls(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((url): url is string => typeof url === 'string' && url.length > 0)
     : [];
+}
+
+function parseIncidentMaterials(value: unknown): DirectorIncidentMaterial[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = asRecord(item);
+    const materialName = asString(record.material_name);
+    const quantity = asNumber(record.quantity);
+    return materialName && quantity > 0 ? [{ material_name: materialName, quantity }] : [];
+  });
 }

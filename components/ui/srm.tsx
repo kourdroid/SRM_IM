@@ -277,6 +277,78 @@ export function SrmEmptyState({
   );
 }
 
+type SkeletonSize = number | `${number}%`;
+
+interface SkeletonBlockProps {
+  width?: SkeletonSize;
+  height?: number;
+  radius?: number;
+  style?: StyleProp<ViewStyle>;
+}
+
+export function SrmSkeletonBlock({
+  width = '100%',
+  height = 14,
+  radius = RADIUS.sm,
+  style,
+}: SkeletonBlockProps) {
+  return (
+    <View
+      style={[
+        styles.skeletonBlock,
+        { width, height, borderRadius: radius },
+        style,
+      ]}
+    />
+  );
+}
+
+export function SrmSkeletonCard({
+  rows = 3,
+  showAvatar,
+  style,
+}: {
+  rows?: number;
+  showAvatar?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.skeletonCard, style]}>
+      <View style={styles.skeletonCardRow}>
+        {showAvatar ? <SrmSkeletonBlock width={42} height={42} radius={RADIUS.md} /> : null}
+        <View style={styles.skeletonCardCopy}>
+          {Array.from({ length: rows }).map((_, index) => (
+            <SrmSkeletonBlock
+              key={index}
+              width={index === 0 ? '72%' : index === rows - 1 ? '44%' : '92%'}
+              height={index === 0 ? 16 : 12}
+              style={index > 0 ? styles.skeletonLineGap : undefined}
+            />
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export function SrmListSkeleton({
+  count = 5,
+  showAvatar,
+  style,
+}: {
+  count?: number;
+  showAvatar?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.skeletonList, style]}>
+      {Array.from({ length: count }).map((_, index) => (
+        <SrmSkeletonCard key={index} showAvatar={showAvatar} />
+      ))}
+    </View>
+  );
+}
+
 const badgeVariants: Record<
   NonNullable<StatusBadgeProps['variant']>,
   { container: ViewStyle; text: TextStyle }
@@ -509,6 +581,33 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.label,
     color: COLORS.textSecondary,
     textAlign: 'center',
+    marginTop: SPACING.sm,
+  },
+  skeletonBlock: {
+    backgroundColor: COLORS.border,
+  },
+  skeletonList: {
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+  },
+  skeletonCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.lg,
+    marginBottom: SPACING.md,
+  },
+  skeletonCardRow: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+    alignItems: 'center',
+  },
+  skeletonCardCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  skeletonLineGap: {
     marginTop: SPACING.sm,
   },
 });

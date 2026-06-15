@@ -1,10 +1,11 @@
+import { SrmSkeletonBlock, SrmSkeletonCard } from '@/components/ui/srm';
 import { clearLocalSupabaseSession } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { DirectorService, type DirectorDashboardMetrics, type DirectorIncident } from '@/src/core/services/directorService';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function DirectorDashboard() {
@@ -51,10 +52,7 @@ export default function DirectorDashboard() {
         </View>
 
         {loading || !metrics ? (
-          <View style={styles.loadingPanel}>
-            <ActivityIndicator color={COLORS.textPrimary} />
-            <Text style={styles.loadingText}>Chargement des indicateurs...</Text>
-          </View>
+          <DirectorDashboardSkeleton />
         ) : (
           <>
             <View style={styles.kpiGrid}>
@@ -110,6 +108,35 @@ export default function DirectorDashboard() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function DirectorDashboardSkeleton() {
+  return (
+    <View>
+      <View style={styles.kpiGrid}>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <View key={index} style={styles.kpiCard}>
+            <SrmSkeletonBlock width={34} height={34} radius={RADIUS.sm} style={{ marginBottom: SPACING.md }} />
+            <SrmSkeletonBlock width="48%" height={26} />
+            <SrmSkeletonBlock width="72%" height={12} style={{ marginTop: SPACING.sm }} />
+          </View>
+        ))}
+      </View>
+      <View style={styles.panel}>
+        <SrmSkeletonBlock width="56%" height={18} style={{ marginBottom: SPACING.lg }} />
+        <View style={styles.timeRow}>
+          <SrmSkeletonCard rows={2} style={styles.skeletonMetricCard} />
+          <SrmSkeletonCard rows={2} style={styles.skeletonMetricCard} />
+        </View>
+      </View>
+      <View style={styles.panel}>
+        <SrmSkeletonBlock width="64%" height={18} style={{ marginBottom: SPACING.lg }} />
+        <SrmSkeletonCard rows={2} />
+        <SrmSkeletonCard rows={2} />
+        <SrmSkeletonCard rows={2} style={{ marginBottom: 0 }} />
+      </View>
+    </View>
   );
 }
 
@@ -195,20 +222,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loadingPanel: {
-    margin: SPACING.xl,
-    padding: SPACING.xxl,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-    gap: SPACING.md,
-  },
-  loadingText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textSecondary,
-  },
   kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -273,6 +286,11 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.background,
     padding: SPACING.md,
+  },
+  skeletonMetricCard: {
+    flex: 1,
+    marginBottom: 0,
+    backgroundColor: COLORS.background,
   },
   timeValue: {
     ...TYPOGRAPHY.title,

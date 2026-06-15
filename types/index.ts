@@ -32,6 +32,7 @@ export type Incident = {
     village: string;
     status: IncidentStatus;
     incident_type: string;
+    depart_hta?: string | null;
     commune_id: string;
     equipment_used: string;
     description?: string;

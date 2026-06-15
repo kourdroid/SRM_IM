@@ -1,16 +1,31 @@
 import { supabase } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 import * as Network from 'expo-network';
-import { UserRoleUpdateSchema, type UserRoleUpdate } from '../entities/admin';
+import {
+    UserApprovalStatusUpdateSchema,
+    UserRoleUpdateSchema,
+    type UserApprovalStatusUpdate,
+    type UserRoleUpdate,
+} from '../entities/admin';
 
 export interface UserProfile {
     id: string;
     role: UserRole;
+    approval_status: UserApprovalStatus;
     name: string | null;
     email: string | null;
 }
 
 export type UserRole = 'field' | 'admin' | 'director';
+export type UserApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+interface AdminUserRpcRow {
+    id: string;
+    role: unknown;
+    approval_status?: unknown;
+    name?: string | null;
+    email?: string | null;
+}
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -33,13 +48,21 @@ export const UserAdminService = {
             if (fallbackError) throw new Error(`Fetch profiles failed: ${fallbackError.message}`);
             return (fallbackData || []).map(p => ({
                 id: p.id,
-                role: p.role,
-                name: p.name,
+                role: parseRole(p.role),
+                approval_status: parseApprovalStatus(p.approval_status),
+                name: p.name || null,
                 email: null // Direct query has no email
             }));
         }
 
-        return (data || []) as UserProfile[];
+        // Supabase RPC payloads are not typed from generated schema here; validate each dynamic field below.
+        return ((data || []) as AdminUserRpcRow[]).map(profile => ({
+            id: profile.id,
+            role: parseRole(profile.role),
+            approval_status: parseApprovalStatus(profile.approval_status),
+            name: profile.name || null,
+            email: profile.email || null,
+        }));
     },
 
     /**
@@ -62,6 +85,25 @@ export const UserAdminService = {
     },
 
     /**
+     * Approves or rejects a self-service signup. Admin-created users are approved during creation.
+     */
+    async updateUserApproval(updatePayload: UserApprovalStatusUpdate): Promise<void> {
+        const validPayload = UserApprovalStatusUpdateSchema.parse(updatePayload);
+
+        const networkState = await Network.getNetworkStateAsync();
+        if (!networkState.isConnected || !networkState.isInternetReachable) {
+            throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
+        }
+
+        const { error } = await supabase
+            .from('user_profiles')
+            .update({ approval_status: validPayload.approval_status })
+            .eq('id', validPayload.id);
+
+        if (error) throw new Error(`Approval mutation failed: ${error.message}`);
+    },
+
+    /**
      * Creates a new user auth account and profile without swapping the admin's session.
      * Requires "Auto Confirm" enabled in Supabase Auth settings to avoid sending emails.
      */
@@ -79,7 +121,7 @@ export const UserAdminService = {
             email,
             password,
             options: {
-                data: { name, role },
+                data: { name },
             },
         });
         if (authError) throw new Error(authError.message);
@@ -87,7 +129,12 @@ export const UserAdminService = {
 
         const { error: profileError } = await supabase
             .from('user_profiles')
-            .upsert({ id: authData.user.id, name, role }, { onConflict: 'id' });
+            .upsert({
+                id: authData.user.id,
+                name,
+                role,
+                approval_status: 'approved',
+            }, { onConflict: 'id' });
 
         if (profileError) {
             const { error: rollbackError } = await supabase.rpc('delete_user_by_admin', {
@@ -99,7 +146,7 @@ export const UserAdminService = {
             throw new Error(`Profile setup failed: ${profileError.message}`);
         }
 
-        return { id: authData.user.id, role, name, email };
+        return { id: authData.user.id, role, approval_status: 'approved', name, email };
     },
 
     /**
@@ -116,3 +163,12 @@ export const UserAdminService = {
         if (error) throw new Error(`Delete user failed: ${error.message}`);
     }
 };
+
+function parseRole(value: unknown): UserRole {
+    return value === 'admin' || value === 'director' ? value : 'field';
+}
+
+function parseApprovalStatus(value: unknown): UserApprovalStatus {
+    if (value === 'approved' || value === 'rejected') return value;
+    return 'pending';
+}

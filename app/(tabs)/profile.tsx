@@ -6,12 +6,14 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { clearLocalSupabaseSession } from '@/lib/supabase';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Profile() {
   const { user, isAdmin } = useAuth();
+  const appVersion = Constants.expoConfig?.version ?? '1.0.5';
 
   const handleSignOut = async () => {
     try {
@@ -67,8 +69,8 @@ export default function Profile() {
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.version}>VERSION 1.0.1</Text>
-        <Text style={styles.product}>ONEE Incident Management System</Text>
+        <Text style={styles.version}>VERSION {appVersion}</Text>
+        <Text style={styles.product}>SRM Incident Management System</Text>
       </View>
     </SafeAreaView>
   );

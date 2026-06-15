@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,7 +39,7 @@ export default function ReportsScreen() {
   const [agents, setAgents] = useState<SelectOption[]>([]);
   const [report, setReport] = useState<IncidentReport | null>(null);
   const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     void loadOptions();
@@ -85,27 +86,16 @@ export default function ReportsScreen() {
     }
   };
 
-  const exportPdf = async () => {
+  const exportServerXlsx = async () => {
     if (!report) return;
-    setExporting('pdf');
+    setExporting(true);
     try {
-      await ReportService.exportPdf(report);
+      const downloadUrl = await ReportService.exportServerXlsx(filters);
+      await Linking.openURL(downloadUrl);
     } catch (error) {
-      Alert.alert('Export PDF', error instanceof Error ? error.message : 'Export impossible.');
+      Alert.alert('Export serveur', error instanceof Error ? error.message : 'Export impossible.');
     } finally {
-      setExporting(null);
-    }
-  };
-
-  const exportExcel = async () => {
-    if (!report) return;
-    setExporting('excel');
-    try {
-      await ReportService.exportExcel(report);
-    } catch (error) {
-      Alert.alert('Export Excel', error instanceof Error ? error.message : 'Export impossible.');
-    } finally {
-      setExporting(null);
+      setExporting(false);
     }
   };
 
@@ -196,13 +186,9 @@ export default function ReportsScreen() {
             <View style={styles.panel}>
               <Text style={styles.sectionTitle}>Exports</Text>
               <View style={styles.exportRow}>
-                <TouchableOpacity style={styles.secondaryButton} onPress={exportPdf} disabled={exporting !== null}>
-                  {exporting === 'pdf' ? <ActivityIndicator color={COLORS.textPrimary} /> : <Ionicons name="print-outline" size={19} color={COLORS.textPrimary} />}
-                  <Text style={styles.secondaryButtonText}>PDF</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryButton} onPress={exportExcel} disabled={exporting !== null}>
-                  {exporting === 'excel' ? <ActivityIndicator color={COLORS.textPrimary} /> : <Ionicons name="grid-outline" size={19} color={COLORS.textPrimary} />}
-                  <Text style={styles.secondaryButtonText}>Excel</Text>
+                <TouchableOpacity style={styles.secondaryButton} onPress={exportServerXlsx} disabled={exporting}>
+                  {exporting ? <ActivityIndicator color={COLORS.textPrimary} /> : <Ionicons name="cloud-download-outline" size={19} color={COLORS.textPrimary} />}
+                  <Text style={styles.secondaryButtonText}>Excel complet</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -215,6 +201,8 @@ export default function ReportsScreen() {
             <Breakdown title="Communes" data={report.breakdowns.byCommune} />
             <Breakdown title="Agents" data={report.breakdowns.byAgent} />
             <Breakdown title="Types d'incidents" data={report.breakdowns.byIncidentType} />
+            <Breakdown title="Départs HTA" data={report.breakdowns.byDepartHta} />
+            <Breakdown title="Matériels utilisés" data={report.breakdowns.byMaterialQuantity} />
           </>
         )}
       </ScrollView>

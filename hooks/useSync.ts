@@ -2,6 +2,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useRef, useState } from 'react';
 import { isSupabaseNetworkError } from '../lib/supabase';
 import { syncAll, type SyncOptions } from '../lib/sync';
+import { emitSyncCompleted } from '../lib/syncEvents';
 
 export function useSync(userId?: string) {
     const db = useSQLiteContext();
@@ -15,6 +16,7 @@ export function useSync(userId?: string) {
             isSyncingRef.current = true;
             setIsSyncing(true);
             await syncAll(db, userId, options);
+            emitSyncCompleted(options.reason);
         } catch (error) {
             if (isSupabaseNetworkError(error)) {
                 console.warn('Sync deferred: Supabase is unreachable.');

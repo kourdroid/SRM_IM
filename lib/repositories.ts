@@ -18,6 +18,7 @@ interface IncidentRow {
     village: string;
     status: 'open' | 'closed';
     incident_type: string;
+    depart_hta: string | null;
     commune_id: string;
     equipment_used: string;
     description: string | null;
@@ -48,6 +49,7 @@ function mapRowToEntity(row: IncidentRow): IncidentEntity {
         village: row.village,
         status: row.status,
         incidentType: row.incident_type,
+        departHta: row.depart_hta,
         communeId: row.commune_id,
         equipmentUsed: row.equipment_used,
         description: row.description,
@@ -92,16 +94,17 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
         const clientId = `incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
         const result = await this.db.runAsync(
             `INSERT INTO incidents (
-        client_id, type, date, village, incident_type, commune_id, equipment_used,
+        client_id, type, date, village, incident_type, depart_hta, commune_id, equipment_used,
         description, reclamation, reclamation_name, reclamation_by, 
         created_by, media_urls, sync_status, synced
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'pending', 0)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'pending', 0)`,
             [
                 clientId,
                 input.type,
                 input.date,
                 input.village,
                 input.incident_type,
+                input.depart_hta ?? null,
                 input.commune_id,
                 input.equipment_used,
                 input.description || null,
@@ -141,12 +144,13 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
 
             await this.db.runAsync(
                 `INSERT INTO incidents (
-          client_id, remote_id, type, date, village, status, incident_type, commune_id,
+          client_id, remote_id, type, date, village, status, incident_type, depart_hta, commune_id,
           equipment_used, description, reclamation, reclamation_name,
           created_by, latitude, longitude, gps_accuracy, media_urls, sync_status, synced, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
         ON CONFLICT(remote_id) DO UPDATE SET
           client_id = COALESCE(incidents.client_id, excluded.client_id),
+          depart_hta = excluded.depart_hta,
           status = excluded.status,
           media_urls = excluded.media_urls,
           sync_status = 'synced',
@@ -160,6 +164,7 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
                     inc.village || 'Unknown',
                     inc.status || 'open',
                     inc.incident_type || 'General',
+                    inc.depart_hta || null,
                     safeCommuneId,
                     inc.equipment_used || '',
                     inc.description || null,

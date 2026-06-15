@@ -4,7 +4,8 @@ export type SyncOperationType =
   | 'create_incident'
   | 'update_incident_status'
   | 'upload_media'
-  | 'attach_media';
+  | 'attach_media'
+  | 'sync_materials';
 
 export type SyncOperationStatus = 'pending' | 'running' | 'failed' | 'done';
 
@@ -96,19 +97,34 @@ export async function enqueueMediaUpload(
   );
 }
 
+export async function enqueueSyncMaterials(
+  db: SQLiteDatabase,
+  localIncidentId: number
+): Promise<void> {
+  await enqueueSyncOperation(
+    db,
+    'sync_materials',
+    localIncidentId,
+    {},
+    null,
+    `sync_materials:${localIncidentId}`
+  );
+}
+
 export async function enqueueAttachMedia(
   db: SQLiteDatabase,
   localIncidentId: number,
   remoteIncidentId: string,
   remoteUrl: string,
   clientMediaId: string,
-  storagePath: string
+  storagePath: string,
+  localUri?: string
 ): Promise<void> {
   await enqueueSyncOperation(
     db,
     'attach_media',
     localIncidentId,
-    { remoteUrl, clientMediaId, storagePath },
+    { remoteUrl, clientMediaId, storagePath, localUri },
     remoteIncidentId,
     `attach_media:${remoteIncidentId}:${clientMediaId}`
   );
@@ -128,9 +144,10 @@ export async function getRunnableSyncOperations(
      ORDER BY
        CASE operation_type
          WHEN 'create_incident' THEN 0
-         WHEN 'upload_media' THEN 1
-         WHEN 'attach_media' THEN 2
-         WHEN 'update_incident_status' THEN 3
+         WHEN 'sync_materials' THEN 1
+         WHEN 'update_incident_status' THEN 2
+         WHEN 'upload_media' THEN 3
+         WHEN 'attach_media' THEN 4
          ELSE 4
        END,
        id ASC
@@ -145,6 +162,29 @@ export async function resetRunningSyncOperations(db: SQLiteDatabase): Promise<vo
      SET status = 'pending', updated_at = CURRENT_TIMESTAMP
      WHERE status = 'running'`
   );
+}
+
+export async function resetRetryableFailedSyncOperations(db: SQLiteDatabase): Promise<number> {
+  const result = await db.runAsync(
+    `UPDATE sync_operations
+     SET status = 'pending',
+         next_attempt_at = NULL,
+         last_error = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE status = 'failed'
+       AND is_terminal = 0`
+  );
+  return result.changes;
+}
+
+export async function hasPendingSyncOperations(db: SQLiteDatabase): Promise<boolean> {
+  const row = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM sync_operations
+     WHERE is_terminal = 0
+       AND status != 'done'`
+  );
+  return (row?.count ?? 0) > 0;
 }
 
 export async function markSyncOperationRunning(
@@ -169,6 +209,19 @@ export async function markSyncOperationDone(
      WHERE id = ?`,
     [id]
   );
+}
+
+export async function pruneCompletedSyncOperations(
+  db: SQLiteDatabase,
+  retentionDays = 30
+): Promise<number> {
+  const result = await db.runAsync(
+    `DELETE FROM sync_operations
+     WHERE status = 'done'
+       AND updated_at < datetime('now', '-' || ? || ' days')`,
+    [retentionDays]
+  );
+  return result.changes;
 }
 
 export async function markSyncOperationFailed(
@@ -200,23 +253,34 @@ export async function recoverMissingMediaUploadOperations(db: SQLiteDatabase): P
      WHERE media_urls IS NOT NULL
        AND media_urls LIKE '%file:%'`
   );
+  const existingUploads = await db.getAllAsync<{ local_incident_id: number; payload_json: string }>(
+    `SELECT local_incident_id, payload_json
+     FROM sync_operations
+     WHERE operation_type = 'upload_media'`
+  );
+  const existingKeys = new Set(existingUploads.flatMap((operation) => {
+    const localUri = parseUploadLocalUri(operation.payload_json);
+    return localUri ? [`${operation.local_incident_id}:${localUri}`] : [];
+  }));
 
   for (const incident of incidents) {
     const localUris = parseLocalMediaUrls(incident.media_urls);
     for (const localUri of localUris) {
-      const existing = await db.getFirstAsync<{ id: number }>(
-        `SELECT id FROM sync_operations
-         WHERE local_incident_id = ?
-           AND operation_type = 'upload_media'
-           AND payload_json LIKE ?
-         LIMIT 1`,
-        [incident.id, `%${localUri}%`]
-      );
-      if (existing) continue;
+      if (existingKeys.has(`${incident.id}:${localUri}`)) continue;
 
       const clientMediaId = `recovered-${hashString(localUri)}`;
       await enqueueMediaUpload(db, incident.id, localUri, clientMediaId);
+      existingKeys.add(`${incident.id}:${localUri}`);
     }
+  }
+}
+
+function parseUploadLocalUri(payloadJson: string): string | null {
+  try {
+    const payload = JSON.parse(payloadJson) as { localUri?: unknown };
+    return typeof payload.localUri === 'string' ? payload.localUri : null;
+  } catch {
+    return null;
   }
 }
 
@@ -234,6 +298,9 @@ function buildOperationKey(
   }
   if (operationType === 'attach_media' && typeof payload.clientMediaId === 'string') {
     return `attach_media:${remoteIncidentId || 'pending'}:${payload.clientMediaId}`;
+  }
+  if (operationType === 'sync_materials') {
+    return `sync_materials:${localIncidentId}`;
   }
   if (operationType === 'update_incident_status' && typeof payload.clientEventId === 'string') {
     return `update_status:${localIncidentId}:${payload.status || 'unknown'}:${payload.clientEventId}`;

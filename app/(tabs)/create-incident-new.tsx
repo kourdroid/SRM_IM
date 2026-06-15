@@ -1,19 +1,15 @@
-import VoiceRecorderOverlay from "@/components/VoiceRecorderOverlay";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
-import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Easing,
   Image,
   ScrollView,
   Text,
@@ -21,16 +17,29 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
-import { useSharedValue } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
-import { enqueueCreateIncident, enqueueMediaUpload } from '../../db/syncOperations';
+import { insertIncidentMaterials } from '../../db/incidentMaterials';
+import {
+  getActiveDepartHtaOptions,
+  getAllActiveIncidentTypes,
+  type DepartHtaOptionRow,
+  type IncidentTypeOptionRow,
+} from '../../db/referenceOptions';
+import { enqueueCreateIncident, enqueueMediaUpload, enqueueSyncMaterials } from '../../db/syncOperations';
 import { useSync } from '../../hooks/useSync';
 import { persistIncidentMedia } from '../../lib/imageUtils';
-import { processVoiceRecording } from '../../lib/voice-processing';
-import { getIncidentTypesForType } from "../../src/core/constants/incidentTypes";
+import {
+  buildEquipmentSummary,
+  createEmptyMaterialFormRow,
+  normalizeMaterialRows,
+  type MaterialFormRow,
+} from '../../lib/materials';
 
 // Defines
+const MAX_INCIDENT_PHOTOS = 5;
+const pickerTextStyle = { color: '#111827', backgroundColor: '#FFFFFF' };
+
 interface Commune {
   id: number;
   name: string;
@@ -41,6 +50,7 @@ export default function CreateIncidentScreen() {
   const { user } = useAuth();
   const db = useSQLiteContext();
   const { syncPendingItems } = useSync(user?.id);
+  const formScrollRef = useRef<ScrollView>(null);
 
   // Form State
   const [type, setType] = useState<"BT" | "MT">("BT");
@@ -49,8 +59,12 @@ export default function CreateIncidentScreen() {
   const [communeSearch, setCommuneSearch] = useState("");
   const [communes, setCommunes] = useState<Commune[]>([]);
   const [village, setVillage] = useState("");
-  const [incidentType, setIncidentType] = useState<string>(getIncidentTypesForType("BT")[0]);
-  const [equipment, setEquipment] = useState("");
+  const [incidentType, setIncidentType] = useState<string>("");
+  const [departHta, setDepartHta] = useState("");
+  const [incidentTypeOptions, setIncidentTypeOptions] = useState<IncidentTypeOptionRow[]>([]);
+  const [departHtaOptions, setDepartHtaOptions] = useState<DepartHtaOptionRow[]>([]);
+  const [referencesLoading, setReferencesLoading] = useState(true);
+  const [materialRows, setMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [description, setDescription] = useState("");
   const [isReclamation, setIsReclamation] = useState(false);
   const [reclamationName, setReclamationName] = useState("");
@@ -63,205 +77,80 @@ export default function CreateIncidentScreen() {
   } | null>(null);
   const [isCapturingLocation, setIsCapturingLocation] = useState(false);
 
-  // Voice State
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
-  const [pulseAnim] = useState(new Animated.Value(1));
-  const [voiceMode, setVoiceMode] = useState(true);
-
   // UI State
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const incidentTypes = useMemo(
+    () => incidentTypeOptions
+      .filter(option => option.network_type === type)
+      .map(option => option.name),
+    [incidentTypeOptions, type]
+  );
+  const safeIncidentType = useMemo(
+    () => resolveIncidentType(incidentTypes, incidentType),
+    [incidentTypes, incidentType]
+  );
+  const hasRequiredReferenceData = incidentTypes.length > 0 && (type !== 'MT' || departHtaOptions.length > 0);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      formScrollRef.current?.scrollTo({ y: 0, animated: false });
+    }, 0);
+    return () => clearTimeout(timeoutId);
+  }, [currentStep]);
+
+  const loadFieldReferences = useCallback(async () => {
+    setReferencesLoading(true);
+    try {
+      const [communeRows, incidentTypeRows, departRows] = await Promise.all([
+        db.getAllAsync<Commune>('SELECT * FROM communes ORDER BY name ASC'),
+        getAllActiveIncidentTypes(db),
+        getActiveDepartHtaOptions(db),
+      ]);
+      setCommunes(communeRows);
+      setIncidentTypeOptions(incidentTypeRows);
+      setDepartHtaOptions(departRows);
+    } catch (e) {
+      console.error("Failed to load field references", e);
+    } finally {
+      setReferencesLoading(false);
+    }
+  }, [db]);
 
   // Reset form every time the screen gains focus (tab switching preserves state)
   useFocusEffect(
     useCallback(() => {
+      void loadFieldReferences();
       setCurrentStep(1);
       setType("BT");
       setIncidentDate(new Date());
       setCommune("");
       setCommuneSearch("");
       setVillage("");
-      setIncidentType(getIncidentTypesForType("BT")[0]);
-      setEquipment("");
+      setIncidentType("");
+      setDepartHta("");
+      setMaterialRows([createEmptyMaterialFormRow()]);
       setDescription("");
       setIsReclamation(false);
       setReclamationName("");
       setReclamationBy("Administration");
       setSelectedImages([]);
       setGpsLocation(null);
-      setVoiceMode(true);
-      setRecordingDuration(0);
-    }, [])
+    }, [loadFieldReferences])
   );
 
-  // Load Communes
   useEffect(() => {
-    const loadCommunes = async () => {
-      try {
-        const rows = await db.getAllAsync<Commune>('SELECT * FROM communes ORDER BY name ASC');
-        setCommunes(rows);
-      } catch (e) {
-        console.error("Failed to load communes", e);
-      }
-    };
-    loadCommunes();
-  }, [db]);
-
-  // Animation for Mic
-  useEffect(() => {
-    if (isRecording) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.2, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ])
-      ).start();
-    } else {
-      pulseAnim.setValue(1);
+    if (incidentType !== safeIncidentType) {
+      setIncidentType(safeIncidentType);
     }
-  }, [isRecording, pulseAnim]);
-
-  useEffect(() => {
-    const incidentTypes = getIncidentTypesForType(type);
-    if (!(incidentTypes as readonly string[]).includes(incidentType)) {
-      setIncidentType(incidentTypes[0]);
+    if (type !== 'MT') {
+      setDepartHta("");
+    } else if (departHta && !departHtaOptions.some(option => option.name === departHta)) {
+      setDepartHta("");
     }
-  }, [type, incidentType]);
-
-  async function startRecording() {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status === 'granted') {
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-
-        // Enable metering in options
-        const options = {
-          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-          isMeteringEnabled: true,
-          android: {
-            ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
-            isMeteringEnabled: true
-          },
-          ios: {
-            ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
-            isMeteringEnabled: true
-          }
-        };
-
-        const { recording } = await Audio.Recording.createAsync(options);
-
-        // Hook up status updates for metering and duration
-        recording.setOnRecordingStatusUpdate((status) => {
-          if (status.isRecording) {
-            setRecordingDuration(status.durationMillis);
-            if (status.metering !== undefined) {
-              metering.value = status.metering;
-            }
-          }
-        });
-
-        setRecording(recording);
-        setIsRecording(true);
-      } else {
-        Alert.alert("Permission refusée", "L'accès au microphone est nécessaire.");
-      }
-    } catch (err) {
-      console.error('Failed to start recording', err);
-    }
-  }
-
-  async function stopRecording() {
-    if (!recording) return;
-    setIsRecording(false);
-    setIsProcessingAudio(true);
-
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
-
-      if (!uri) {
-        Alert.alert("Erreur", "Impossible d'obtenir l'enregistrement audio.");
-        setIsProcessingAudio(false);
-        return;
-      }
-
-      // Process audio using Supabase Edge Function
-      const data = await processVoiceRecording(uri, user?.id || 'unknown');
-
-      debugLog('=== Voice AI Response ===');
-      debugLog('Full data:', JSON.stringify(data, null, 2));
-
-      // Pre-fill form with extracted data
-      if (data.type && (data.type === 'BT' || data.type === 'MT')) {
-        debugLog('Setting type:', data.type);
-        setType(data.type);
-      }
-      if (data.village) {
-        debugLog('Setting village:', data.village);
-        setVillage(data.village);
-      }
-      if (data.commune_id) {
-        debugLog('Setting commune:', data.commune_id);
-        setCommune(data.commune_id);
-      }
-      if (data.equipment_used && data.equipment_used.trim() !== '') {
-        debugLog('Setting equipment:', data.equipment_used);
-        setEquipment(data.equipment_used);
-      }
-      if (data.incident_type) {
-        debugLog('Incident type from AI:', data.incident_type);
-        setIncidentType(data.incident_type);
-        // Use incident_type as equipment if empty
-        if (!data.equipment_used || data.equipment_used.trim() === '') {
-          setEquipment(data.incident_type);
-          debugLog('Using incident_type as equipment:', data.incident_type);
-        }
-      }
-      if (data.reclamation === true || data.reclamation === false) {
-        debugLog('Setting reclamation:', data.reclamation);
-        setIsReclamation(data.reclamation);
-      }
-      if (data.reclamation_name) {
-        debugLog('Setting reclamation_name:', data.reclamation_name);
-        setReclamationName(data.reclamation_name);
-      }
-      if (data.reclamation_by) {
-        debugLog('Setting reclamation_by:', data.reclamation_by);
-        setReclamationBy(data.reclamation_by);
-      }
-      if (data.date) {
-        try {
-          const parsedDate = new Date(data.date);
-          debugLog('Setting date:', parsedDate);
-          setIncidentDate(parsedDate);
-        } catch {
-          debugLog('Could not parse date:', data.date);
-        }
-      }
-
-      debugLog('=== Form Fill Complete ===');
-
-      Alert.alert(
-        "Traitement Terminé",
-        data.description || "Les informations ont été extraites. Veuillez vérifier et compléter si nécessaire."
-      );
-      setVoiceMode(false);
-    } catch (error) {
-      console.error("Error processing audio:", error);
-      Alert.alert(
-        "Erreur",
-        "Une erreur est survenue lors du traitement de l'audio. Veuillez réessayer ou utiliser la saisie manuelle."
-      );
-    } finally {
-      setIsProcessingAudio(false);
-    }
-  }
+  }, [type, incidentType, safeIncidentType, departHta, departHtaOptions]);
 
   // Helpers
   const formatDate = (date: Date) => {
@@ -285,18 +174,27 @@ export default function CreateIncidentScreen() {
   };
 
   const pickImage = async () => {
+    if (selectedImages.length >= MAX_INCIDENT_PHOTOS) {
+      Alert.alert("Limite atteinte", `Maximum ${MAX_INCIDENT_PHOTOS} photos par incident.`);
+      return;
+    }
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
+      selectionLimit: MAX_INCIDENT_PHOTOS - selectedImages.length,
       aspect: [4, 3],
       quality: 0.5,
     });
     if (!result.canceled) {
-      setSelectedImages(prev => [...prev, ...result.assets.map(asset => asset.uri)]);
+      setSelectedImages(prev => [...prev, ...result.assets.map(asset => asset.uri)].slice(0, MAX_INCIDENT_PHOTOS));
     }
   };
 
   const takePhoto = async () => {
+    if (selectedImages.length >= MAX_INCIDENT_PHOTOS) {
+      Alert.alert("Limite atteinte", `Maximum ${MAX_INCIDENT_PHOTOS} photos par incident.`);
+      return;
+    }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert("Permission refusée", "L'accès à la caméra est nécessaire pour joindre une photo.");
@@ -327,8 +225,24 @@ export default function CreateIncidentScreen() {
       return;
     }
 
-    if (!commune || !village || !incidentType || !equipment) {
+    if (!hasRequiredReferenceData) {
+      Alert.alert("Synchronisation requise", "Synchronisez les types d'incidents et les départs HTA avant de créer un incident.");
+      return;
+    }
+
+    const normalizedMaterials = normalizeMaterialRows(materialRows);
+    if (!commune || !village || !safeIncidentType) {
       Alert.alert("Erreur", "Veuillez remplir tous les champs obligatoires");
+      return;
+    }
+
+    if (normalizedMaterials === null) {
+      Alert.alert("Matériel invalide", "Chaque ligne de matériel doit avoir un nom et une quantité positive.");
+      return;
+    }
+
+    if (type === 'MT' && !departHta) {
+      Alert.alert("Départ HTA requis", "Veuillez sélectionner le départ HTA pour un incident MT.");
       return;
     }
 
@@ -336,6 +250,7 @@ export default function CreateIncidentScreen() {
       setIsSubmitting(true);
       const location = gpsLocation || await captureLocation();
       const clientId = createClientId();
+      const equipmentSummary = buildEquipmentSummary(normalizedMaterials);
       let localIncidentId: number | null = null;
       let mediaPreparationFailed = false;
 
@@ -345,9 +260,10 @@ export default function CreateIncidentScreen() {
         date: incidentDate.toISOString(),
         village,
         status: 'open',
-        incident_type: incidentType,
+        incident_type: safeIncidentType,
+        depart_hta: type === 'MT' ? departHta : null,
         commune_id: commune,
-        equipment_used: equipment,
+        equipment_used: equipmentSummary,
         description: description.trim() || null,
         reclamation: isReclamation ? 1 : 0,
         reclamation_name: reclamationName || null,
@@ -364,10 +280,10 @@ export default function CreateIncidentScreen() {
       await db.withTransactionAsync(async () => {
         const result = await db.runAsync(
           `INSERT INTO incidents (
-            client_id, type, date, village, status, incident_type, commune_id, equipment_used,
+            client_id, type, date, village, status, incident_type, depart_hta, commune_id, equipment_used,
             description, reclamation, reclamation_name, reclamation_by, created_by,
             latitude, longitude, gps_accuracy, media_urls, sync_status, synced, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
           [
             incidentData.client_id,
             incidentData.type,
@@ -375,6 +291,7 @@ export default function CreateIncidentScreen() {
             incidentData.village,
             incidentData.status,
             incidentData.incident_type,
+            incidentData.depart_hta,
             incidentData.commune_id,
             incidentData.equipment_used,
             incidentData.description,
@@ -392,19 +309,24 @@ export default function CreateIncidentScreen() {
         );
 
         await enqueueCreateIncident(db, result.lastInsertRowId, clientId);
+        if (normalizedMaterials.length > 0) {
+          await insertIncidentMaterials(db, result.lastInsertRowId, normalizedMaterials);
+          await enqueueSyncMaterials(db, result.lastInsertRowId);
+        }
         localIncidentId = result.lastInsertRowId;
       });
 
       if (selectedImages.length > 0 && localIncidentId !== null) {
         const incidentId = localIncidentId;
         try {
-          const localPhotos = await Promise.all(selectedImages.map(async (uri) => {
+          const localPhotos: { clientMediaId: string; localUri: string }[] = [];
+          for (const uri of selectedImages) {
             const clientMediaId = createMediaClientId();
-            return {
+            localPhotos.push({
               clientMediaId,
               localUri: await persistIncidentMedia(uri, clientMediaId),
-            };
-          }));
+            });
+          }
 
           await db.withTransactionAsync(async () => {
             await db.runAsync(
@@ -481,80 +403,118 @@ export default function CreateIncidentScreen() {
     return `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   };
 
-  // --- Metering Shared Value ---
-  const metering = useSharedValue(-160);
-
-  // --- Helpers ---
-  const formatDuration = (ms: number) => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  const addMaterialRow = () => {
+    setMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
   };
 
-  const handleCancelRecording = async () => {
-    debugLog("Cancelling recording...");
-    if (recording) {
-      try {
-        await recording.stopAndUnloadAsync();
-      } catch (e) { console.error(e); }
+  const removeMaterialRow = (id: string) => {
+    setMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
+  };
+
+  const updateMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
+    setMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
+  };
+
+  const handleTypeChange = (nextType: "BT" | "MT") => {
+    setType(nextType);
+    const nextOptions = incidentTypeOptions
+      .filter(option => option.network_type === nextType)
+      .map(option => option.name);
+    setIncidentType(current => resolveIncidentType(nextOptions, current));
+    if (nextType !== 'MT') {
+      setDepartHta("");
     }
-    setRecording(null);
-    setIsRecording(false);
-    setIsProcessingAudio(false);
-    setVoiceMode(false);
   };
 
-  const renderVoiceMode = () => (
-    <VoiceRecorderOverlay
-      isVisible={voiceMode}
-      isRecording={isRecording}
-      isProcessing={isProcessingAudio}
-      metering={metering}
-      onStartRecording={startRecording}
-      onStopRecording={stopRecording}
-      onCancel={handleCancelRecording}
-      durationFormatted={formatDuration(recordingDuration)}
-    />
+  const selectedCommuneName = useMemo(
+    () => communes.find(c => c.remote_id === commune)?.name || '',
+    [commune, communes]
   );
+
+  const handleCommuneSearchChange = (value: string) => {
+    setCommuneSearch(value);
+    if (value !== selectedCommuneName) {
+      setCommune("");
+    }
+  };
 
   const filteredCommunes = useMemo(() => {
     const normalizedSearch = communeSearch.trim().toLowerCase();
+    if (normalizedSearch.length < 2 || communeSearch === selectedCommuneName) {
+      return [];
+    }
+
     return communes
       .filter((c): c is Commune & { remote_id: string } => !!c.remote_id)
       .filter(c => c.name.toLowerCase().includes(normalizedSearch))
       .slice(0, 8);
-  }, [communeSearch, communes]);
+  }, [communeSearch, communes, selectedCommuneName]);
+
+  const canAdvance = useMemo(() => {
+    if (referencesLoading) return false;
+    if (currentStep === 1) {
+      return communes.some(item => item.remote_id) && incidentTypes.length > 0;
+    }
+    if (currentStep === 2) {
+      return incidentTypes.length > 0 && (type !== 'MT' || departHtaOptions.length > 0);
+    }
+    return true;
+  }, [communes, currentStep, departHtaOptions.length, incidentTypes.length, referencesLoading, type]);
 
   const renderForm = () => (
-    <ScrollView style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
+    <ScrollView
+      ref={formScrollRef}
+      style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}
+      contentContainerStyle={{ paddingBottom: 32 }}
+      keyboardShouldPersistTaps="handled"
+    >
       {/* Step 1 */}
       {currentStep === 1 && (
         <View>
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-            {["BT", "MT"].map((t) => (
+            {(["BT", "MT"] as const).map((t) => {
+              const selected = type === t;
+              const accent = t === 'BT' ? '#2563EB' : '#EA580C';
+              const tint = t === 'BT' ? '#EFF6FF' : '#FFF7ED';
+              const subtitle = t === 'BT' ? 'Basse tension' : 'Moyenne tension';
+              return (
               <TouchableOpacity
                 key={t}
                 style={{
                   flex: 1,
-                  paddingVertical: 18,
+                  minHeight: 92,
+                  padding: 14,
                   borderRadius: 8,
                   borderWidth: 2,
-                  backgroundColor: type === t ? '#DAF22C' : '#FFFFFF',
-                  borderColor: type === t ? '#DAF22C' : '#D1D5DB',
+                  backgroundColor: selected ? tint : '#FFFFFF',
+                  borderColor: selected ? accent : '#D1D5DB',
+                  justifyContent: 'space-between',
                 }}
-                onPress={() => setType(t as "BT" | "MT")}
+                onPress={() => handleTypeChange(t)}
               >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: accent, fontWeight: '900', fontSize: 12 }}>{subtitle}</Text>
+                  {selected ? <Ionicons name="checkmark-circle" size={20} color={accent} /> : null}
+                </View>
                 <Text style={{
-                  textAlign: 'center',
                   fontWeight: '900',
-                  fontSize: 22,
+                  fontSize: 26,
                   color: '#111827',
                   letterSpacing: 1,
                 }}>{t}</Text>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
+
+          {!referencesLoading && incidentTypes.length === 0 ? (
+            <View style={{ backgroundColor: '#FEF2F2', borderColor: '#FCA5A5', borderWidth: 1, borderRadius: 8, padding: 16, marginBottom: 24 }}>
+              <Text style={{ color: '#991B1B', fontWeight: '900' }}>SYNCHRONISATION REQUISE</Text>
+              <Text style={{ color: '#7F1D1D', fontWeight: '600', marginTop: 4 }}>
+                Aucun type d&apos;incident {type} n&apos;est disponible sur cet appareil.
+              </Text>
+            </View>
+          ) : null}
 
           <View style={{ marginBottom: 24 }}>
             <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Date et heure</Text>
@@ -599,36 +559,54 @@ export default function CreateIncidentScreen() {
                     marginBottom: 8,
                   }}
                   value={communeSearch}
-                  onChangeText={setCommuneSearch}
-                  placeholder="Rechercher une commune"
+                  onChangeText={handleCommuneSearchChange}
+                  placeholder="Tapez au moins 2 lettres"
                   placeholderTextColor="#9CA3AF"
                 />
-                <View style={{ gap: 8 }}>
-                  {filteredCommunes.map((c) => (
-                    <TouchableOpacity
-                      key={c.id}
-                      onPress={() => {
-                        setCommune(c.remote_id);
-                        setCommuneSearch(c.name);
-                      }}
-                      style={{
-                        backgroundColor: commune === c.remote_id ? '#DAF22C' : '#FFFFFF',
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: commune === c.remote_id ? '#DAF22C' : '#D1D5DB',
-                        padding: 14,
-                      }}
-                    >
-                      <Text style={{ color: '#111827', fontWeight: '800' }}>{c.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                {communeSearch.trim().length > 0 && communeSearch.trim().length < 2 ? (
+                  <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                    Continuez à taper pour rechercher.
+                  </Text>
+                ) : null}
+                {communeSearch.trim().length >= 2 && filteredCommunes.length === 0 && !commune ? (
+                  <View style={{ backgroundColor: '#F9FAFB', borderColor: '#E5E7EB', borderWidth: 1, borderRadius: 8, padding: 14 }}>
+                    <Text style={{ color: '#6B7280', fontWeight: '700' }}>Aucune commune trouvée.</Text>
+                  </View>
+                ) : null}
+                {filteredCommunes.length > 0 ? (
+                  <View style={{ gap: 8 }}>
+                    {filteredCommunes.map((c) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        onPress={() => {
+                          setCommune(c.remote_id);
+                          setCommuneSearch(c.name);
+                        }}
+                        style={{
+                          backgroundColor: commune === c.remote_id ? '#DAF22C' : '#FFFFFF',
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: commune === c.remote_id ? '#DAF22C' : '#D1D5DB',
+                          padding: 14,
+                        }}
+                      >
+                        <Text style={{ color: '#111827', fontWeight: '800' }}>{c.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+                {commune ? (
+                  <View style={{ backgroundColor: '#F0FDF4', borderColor: '#86EFAC', borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 8 }}>
+                    <Text style={{ color: '#166534', fontWeight: '900' }}>COMMUNE SÉLECTIONNÉE</Text>
+                    <Text style={{ color: '#111827', fontWeight: '800', marginTop: 3 }}>{selectedCommuneName}</Text>
+                  </View>
+                ) : null}
               </>
             )}
           </View>
 
           <View style={{ marginBottom: 24 }}>
-            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Village</Text>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Quartier/Village</Text>
             <TextInput
               style={{
                 backgroundColor: '#FFFFFF',
@@ -643,7 +621,7 @@ export default function CreateIncidentScreen() {
               }}
               value={village}
               onChangeText={setVillage}
-              placeholder="Nom du village"
+              placeholder="Nom du quartier ou village"
               placeholderTextColor="#52525B"
             />
           </View>
@@ -687,6 +665,14 @@ export default function CreateIncidentScreen() {
       {/* Step 2 */}
       {currentStep === 2 && (
         <View>
+          {!hasRequiredReferenceData ? (
+            <View style={{ backgroundColor: '#FEF2F2', borderColor: '#FCA5A5', borderWidth: 1, borderRadius: 8, padding: 16, marginBottom: 16 }}>
+              <Text style={{ color: '#991B1B', fontWeight: '900' }}>SYNCHRONISATION REQUISE</Text>
+              <Text style={{ color: '#7F1D1D', fontWeight: '600', marginTop: 4 }}>
+                Les types d&apos;incidents{type === 'MT' ? ' et les départs HTA' : ''} doivent être synchronisés avant la saisie.
+              </Text>
+            </View>
+          ) : null}
           <View style={{ marginBottom: 24 }}>
             <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Type d&apos;incident</Text>
             <View style={{
@@ -697,37 +683,134 @@ export default function CreateIncidentScreen() {
               overflow: 'hidden',
             }}>
               <Picker
-                selectedValue={incidentType}
+                selectedValue={safeIncidentType}
                 onValueChange={setIncidentType}
-                style={{ color: '#111827', height: 56 }}
+                enabled={incidentTypes.length > 0}
+                mode="dropdown"
+                style={{ color: '#111827', backgroundColor: '#FFFFFF', height: 56 }}
                 dropdownIconColor="#DAF22C"
+                dropdownIconRippleColor="#E5E7EB"
               >
-                {getIncidentTypesForType(type).map((item) => (
-                  <Picker.Item key={item} label={item} value={item} color="black" />
+                {incidentTypes.length === 0 ? (
+                  <Picker.Item label="Synchronisation requise" value="" color="#111827" style={pickerTextStyle} />
+                ) : null}
+                {incidentTypes.map((item) => (
+                  <Picker.Item key={item} label={item} value={item} color="#111827" style={pickerTextStyle} />
                 ))}
               </Picker>
             </View>
           </View>
 
-          <View style={{ marginBottom: 24 }}>
-            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Matériel Utilisé</Text>
-            <TextInput
-              style={{
+          {type === 'MT' && (
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Départ HTA</Text>
+              <View style={{
                 backgroundColor: '#FFFFFF',
                 borderRadius: 8,
-                padding: 16,
-                paddingHorizontal: 16,
-                color: '#111827',
-                fontSize: 18,
-                fontWeight: '500',
                 borderWidth: 1,
                 borderColor: '#D1D5DB',
-              }}
-              value={equipment}
-              onChangeText={setEquipment}
-              placeholder="Câble, isolateur..."
-              placeholderTextColor="#9CA3AF"
-            />
+                overflow: 'hidden',
+              }}>
+                <Picker
+                  selectedValue={departHta}
+                  onValueChange={setDepartHta}
+                  enabled={departHtaOptions.length > 0}
+                  mode="dropdown"
+                  style={{ color: '#111827', backgroundColor: '#FFFFFF', height: 56 }}
+                  dropdownIconColor="#DAF22C"
+                  dropdownIconRippleColor="#E5E7EB"
+                >
+                  <Picker.Item label="Sélectionner un départ HTA" value="" color="#111827" style={pickerTextStyle} />
+                  {departHtaOptions.map((item) => (
+                    <Picker.Item key={item.remote_id} label={item.name} value={item.name} color="#111827" style={pickerTextStyle} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+          )}
+
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Matériel utilisé</Text>
+            <Text style={{ color: '#6B7280', fontWeight: '600', fontSize: 12, marginBottom: 10 }}>
+              Optionnel à l&apos;ouverture. Obligatoire à la clôture.
+            </Text>
+            <View style={{ gap: 10 }}>
+              {materialRows.map((row, index) => (
+                <View key={row.id} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  <TextInput
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: 8,
+                      padding: 14,
+                      color: '#111827',
+                      fontSize: 16,
+                      fontWeight: '600',
+                      borderWidth: 1,
+                      borderColor: '#D1D5DB',
+                    }}
+                    value={row.materialName}
+                    onChangeText={(value) => updateMaterialRow(row.id, { materialName: value })}
+                    placeholder={index === 0 ? "Matériel" : "Autre matériel"}
+                    placeholderTextColor="#9CA3AF"
+                  />
+                  <TextInput
+                    style={{
+                      width: 92,
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: 8,
+                      padding: 14,
+                      color: '#111827',
+                      fontSize: 16,
+                      fontWeight: '800',
+                      borderWidth: 1,
+                      borderColor: '#D1D5DB',
+                      textAlign: 'center',
+                    }}
+                    value={row.quantity}
+                    onChangeText={(value) => updateMaterialRow(row.id, { quantity: value })}
+                    placeholder="Qté"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="decimal-pad"
+                  />
+                  {materialRows.length > 1 ? (
+                    <TouchableOpacity
+                      onPress={() => removeMaterialRow(row.id)}
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: '#FCA5A5',
+                        backgroundColor: '#FEF2F2',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#991B1B" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ))}
+              <TouchableOpacity
+                onPress={addMaterialRow}
+                style={{
+                  alignSelf: 'flex-start',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  backgroundColor: '#FFFFFF',
+                  borderWidth: 1,
+                  borderColor: '#D1D5DB',
+                }}
+              >
+                <Ionicons name="add" size={18} color="#111827" />
+                <Text style={{ color: '#111827', fontWeight: '900' }}>Ajouter un matériel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={{ marginBottom: 24 }}>
@@ -876,11 +959,13 @@ export default function CreateIncidentScreen() {
                 <Picker
                   selectedValue={reclamationBy}
                   onValueChange={setReclamationBy}
-                  style={{ color: '#111827', height: 50 }}
+                  mode="dropdown"
+                  style={{ color: '#111827', backgroundColor: '#FFFFFF', height: 50 }}
                   dropdownIconColor="#DAF22C"
+                  dropdownIconRippleColor="#E5E7EB"
                 >
-                  <Picker.Item label="ADMINISTRATION" value="Administration" color="black" />
-                  <Picker.Item label="CLIENT" value="Client" color="black" />
+                  <Picker.Item label="ADMINISTRATION" value="Administration" color="#111827" style={pickerTextStyle} />
+                  <Picker.Item label="CLIENT" value="Client" color="#111827" style={pickerTextStyle} />
                 </Picker>
               </View>
             </View>
@@ -905,10 +990,11 @@ export default function CreateIncidentScreen() {
           {[
             { l: 'TYPE', v: type },
             { l: 'DATE', v: formatDate(incidentDate) },
-            { l: 'VILLAGE', v: village },
+            { l: 'QUARTIER/VILLAGE', v: village },
             { l: 'COMMUNE', v: communes.find(c => c.remote_id === commune)?.name || commune },
-            { l: 'INCIDENT', v: incidentType },
-            { l: 'MATÉRIEL', v: equipment },
+            { l: 'INCIDENT', v: safeIncidentType },
+            ...(type === 'MT' ? [{ l: 'DÉPART HTA', v: departHta || 'REQUIS' }] : []),
+            { l: 'MATÉRIEL', v: buildEquipmentSummary(normalizeMaterialRows(materialRows) || []) || 'À LA CLÔTURE' },
             { l: 'GPS', v: gpsLocation ? 'CAPTURÉE' : 'REQUIS' },
             { l: 'PHOTOS', v: selectedImages.length > 0 ? `${selectedImages.length}` : 'ABSENTES' }
           ].map((item, i) => (
@@ -929,14 +1015,6 @@ export default function CreateIncidentScreen() {
     </ScrollView>
   );
 
-  if (voiceMode) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#111827' }}>
-        {renderVoiceMode()}
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
       {/* Header */}
@@ -953,7 +1031,7 @@ export default function CreateIncidentScreen() {
           <TouchableOpacity
             onPress={() => {
               if (currentStep > 1) setCurrentStep(currentStep - 1);
-              else setVoiceMode(true);
+              else router.back();
             }}
             style={{ padding: 8, marginLeft: -8 }}
           >
@@ -990,18 +1068,22 @@ export default function CreateIncidentScreen() {
       <View style={{ padding: 20, paddingBottom: 40, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
         <TouchableOpacity
           style={{
-            backgroundColor: '#DAF22C',
+            backgroundColor: isSubmitting || !canAdvance ? '#E5E7EB' : '#DAF22C',
             paddingVertical: 18,
             borderRadius: 4,
             alignItems: 'center',
             borderWidth: 1,
-            borderColor: '#DAF22C'
+            borderColor: isSubmitting || !canAdvance ? '#D1D5DB' : '#DAF22C'
           }}
           onPress={() => {
+            if (!canAdvance) {
+              Alert.alert('Synchronisation requise', 'Synchronisez les données de référence avant de continuer.');
+              return;
+            }
             if (currentStep < 3) setCurrentStep(currentStep + 1);
             else handleSubmit();
           }}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !canAdvance}
         >
           {isSubmitting ? (
             <ActivityIndicator color="#111827" />
@@ -1034,8 +1116,8 @@ export default function CreateIncidentScreen() {
   );
 }
 
-function debugLog(...args: unknown[]): void {
-  if (__DEV__) {
-    console.log(...args);
-  }
+function resolveIncidentType(options: string[], currentIncidentType: string): string {
+  return options.includes(currentIncidentType)
+    ? currentIncidentType
+    : options[0] || '';
 }

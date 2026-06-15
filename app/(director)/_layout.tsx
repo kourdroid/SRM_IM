@@ -1,10 +1,11 @@
 import DirectorTabBar from '@/components/DirectorTabBar';
 import { useAuth } from '@/contexts/AuthContext';
+import { PENDING_APPROVAL_ROUTE } from '@/src/core/constants/routes';
 import { Redirect, Tabs } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 
 export default function DirectorLayout() {
-  const { loading, role } = useAuth();
+  const { loading, role, isApproved } = useAuth();
 
   if (loading) {
     return (
@@ -12,6 +13,10 @@ export default function DirectorLayout() {
         <ActivityIndicator size="large" color="#111827" />
       </View>
     );
+  }
+
+  if (!isApproved) {
+    return <Redirect href={PENDING_APPROVAL_ROUTE} />;
   }
 
   if (role !== 'director') {

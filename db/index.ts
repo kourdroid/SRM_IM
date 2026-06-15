@@ -18,6 +18,7 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       village TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed')),
       incident_type TEXT NOT NULL,
+      depart_hta TEXT,
       commune_id TEXT NOT NULL,
       equipment_used TEXT NOT NULL,
       description TEXT,
@@ -31,6 +32,7 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       media_urls TEXT DEFAULT '[]',
       sync_status TEXT NOT NULL DEFAULT 'pending' CHECK(sync_status IN ('pending', 'syncing', 'synced', 'failed')),
       sync_error TEXT,
+      archived_at TEXT,
       synced INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -51,7 +53,7 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
     CREATE TABLE IF NOT EXISTS sync_operations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       operation_key TEXT NOT NULL UNIQUE,
-      operation_type TEXT NOT NULL CHECK(operation_type IN ('create_incident', 'update_incident_status', 'upload_media', 'attach_media')),
+      operation_type TEXT NOT NULL CHECK(operation_type IN ('create_incident', 'update_incident_status', 'upload_media', 'attach_media', 'sync_materials')),
       local_incident_id INTEGER NOT NULL,
       remote_incident_id TEXT,
       payload_json TEXT NOT NULL DEFAULT '{}',
@@ -65,12 +67,43 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(local_incident_id) REFERENCES incidents(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS incident_materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_incident_id INTEGER NOT NULL,
+      remote_incident_id TEXT,
+      client_material_id TEXT NOT NULL UNIQUE,
+      material_name TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK(quantity > 0),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(local_incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+    );
     
     CREATE TABLE IF NOT EXISTS communes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       remote_id TEXT UNIQUE,
       name TEXT NOT NULL,
       region TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS incident_type_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      remote_id TEXT NOT NULL UNIQUE,
+      network_type TEXT NOT NULL CHECK(network_type IN ('BT', 'MT')),
+      name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS depart_hta_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      remote_id TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sync_metadata (
@@ -94,6 +127,16 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sync_operations_incident ON sync_operations(local_incident_id);
     CREATE INDEX IF NOT EXISTS idx_sync_operations_runnable
       ON sync_operations(is_terminal, status, next_attempt_at, id);
+    CREATE INDEX IF NOT EXISTS idx_sync_operations_type_incident
+      ON sync_operations(operation_type, local_incident_id);
+    CREATE INDEX IF NOT EXISTS idx_sync_operations_status_updated_at
+      ON sync_operations(status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_incident_materials_local_incident ON incident_materials(local_incident_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_incident_materials_client_id ON incident_materials(client_material_id);
+    CREATE INDEX IF NOT EXISTS idx_incident_type_options_active_network_sort
+      ON incident_type_options(active, network_type, sort_order, name);
+    CREATE INDEX IF NOT EXISTS idx_depart_hta_options_active_sort
+      ON depart_hta_options(active, sort_order, name);
   `);
 
   // Migration: Add reclamation_by column if missing (for existing installs)
@@ -154,6 +197,32 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
   }
 
   try {
+    await db.runAsync('ALTER TABLE incidents ADD COLUMN archived_at TEXT');
+  } catch {
+    // Column already exists - ignore
+  }
+
+  try {
+    await db.runAsync('ALTER TABLE incidents ADD COLUMN depart_hta TEXT');
+  } catch {
+    // Column already exists - ignore
+  }
+
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS incident_materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_incident_id INTEGER NOT NULL,
+      remote_incident_id TEXT,
+      client_material_id TEXT NOT NULL UNIQUE,
+      material_name TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK(quantity > 0),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(local_incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+    );
+  `);
+
+  try {
     await db.runAsync('ALTER TABLE sync_operations ADD COLUMN operation_key TEXT');
   } catch {
     // Column already exists - ignore
@@ -177,6 +246,8 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
     // Column already exists - ignore
   }
 
+  await migrateSyncOperationsForMaterials(db);
+
   await db.runAsync(`
     UPDATE incidents
     SET client_id = 'legacy-' || id || '-' || strftime('%s', COALESCE(created_at, CURRENT_TIMESTAMP))
@@ -186,10 +257,12 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_incidents_client_id ON incidents(client_id)');
     await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_sync_status ON incidents(sync_status)');
+    await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_created_by_archived_date ON incidents(created_by, archived_at, date DESC)');
     await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_created_by_date ON incidents(created_by, date DESC)');
     await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_created_by_created_at ON incidents(created_by, created_at DESC)');
     await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_commune_id ON incidents(commune_id)');
     await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_status_created_at ON incidents(status, created_at DESC)');
+    await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incidents_depart_hta_created_at ON incidents(depart_hta, created_at DESC)');
 
     await db.runAsync(`
       UPDATE incidents
@@ -207,6 +280,16 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
     await db.runAsync('CREATE INDEX IF NOT EXISTS idx_sync_operations_next_attempt ON sync_operations(next_attempt_at)');
     await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_sync_operations_runnable
       ON sync_operations(is_terminal, status, next_attempt_at, id)`);
+    await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_sync_operations_type_incident
+      ON sync_operations(operation_type, local_incident_id)`);
+    await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_sync_operations_status_updated_at
+      ON sync_operations(status, updated_at)`);
+    await db.runAsync('CREATE INDEX IF NOT EXISTS idx_incident_materials_local_incident ON incident_materials(local_incident_id)');
+    await db.runAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_incident_materials_client_id ON incident_materials(client_material_id)');
+    await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_incident_type_options_active_network_sort
+      ON incident_type_options(active, network_type, sort_order, name)`);
+    await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_depart_hta_options_active_sort
+      ON depart_hta_options(active, sort_order, name)`);
 
     await db.runAsync(`
       INSERT INTO sync_operations (operation_key, operation_type, local_incident_id, payload_json, status, last_error)
@@ -242,4 +325,60 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
   // NOTE: Do NOT seed communes with fake IDs (c1, c2, c3, c4).
   // Communes MUST be synced from Supabase to get correct UUIDs.
   // The sync.ts pullCommunes() function handles this on first launch.
+}
+
+async function migrateSyncOperationsForMaterials(db: SQLiteDatabase): Promise<void> {
+  const table = await db.getFirstAsync<{ sql: string | null }>(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sync_operations'"
+  );
+  if (!table?.sql || table.sql.includes("'sync_materials'")) {
+    return;
+  }
+
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sync_operations_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation_key TEXT NOT NULL UNIQUE,
+        operation_type TEXT NOT NULL CHECK(operation_type IN ('create_incident', 'update_incident_status', 'upload_media', 'attach_media', 'sync_materials')),
+        local_incident_id INTEGER NOT NULL,
+        remote_incident_id TEXT,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'failed', 'done')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        error_code TEXT,
+        is_terminal INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(local_incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+      );
+    `);
+    await db.runAsync(`
+      INSERT OR IGNORE INTO sync_operations_next (
+        id, operation_key, operation_type, local_incident_id, remote_incident_id,
+        payload_json, status, attempt_count, next_attempt_at, error_code,
+        is_terminal, last_error, created_at, updated_at
+      )
+      SELECT
+        id,
+        COALESCE(NULLIF(operation_key, ''), operation_type || ':' || local_incident_id || ':' || id),
+        operation_type,
+        local_incident_id,
+        remote_incident_id,
+        COALESCE(payload_json, '{}'),
+        COALESCE(status, 'pending'),
+        COALESCE(attempt_count, 0),
+        next_attempt_at,
+        error_code,
+        COALESCE(is_terminal, 0),
+        last_error,
+        COALESCE(created_at, CURRENT_TIMESTAMP),
+        COALESCE(updated_at, CURRENT_TIMESTAMP)
+      FROM sync_operations
+    `);
+    await db.runAsync('DROP TABLE sync_operations');
+    await db.runAsync('ALTER TABLE sync_operations_next RENAME TO sync_operations');
+  });
 }

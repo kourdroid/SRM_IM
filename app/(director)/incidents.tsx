@@ -190,7 +190,9 @@ function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPre
       <View style={[styles.cardDot, { backgroundColor: isOpen ? COLORS.signalRed : COLORS.signalGreen }]} />
       <View style={{ flex: 1 }}>
         <View style={styles.cardTopRow}>
-          <Text style={styles.typeBadge}>{incident.type}</Text>
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>{incident.type}</Text>
+          </View>
           <Text style={[styles.statusBadge, { color: isOpen ? COLORS.signalRed : COLORS.signalGreen }]}>
             {isOpen ? 'OUVERT' : 'CLÔTURÉ'}
           </Text>
@@ -456,13 +458,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   typeBadge: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
     backgroundColor: COLORS.background,
-    overflow: 'hidden',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: RADIUS.sm,
+  },
+  typeBadgeText: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textPrimary,
   },
   statusBadge: {
     ...TYPOGRAPHY.label,

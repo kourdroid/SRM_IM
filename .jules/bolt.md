@@ -1,0 +1,3 @@
+## 2024-06-16 - Prevent unnecessary re-renders in FlatList
+**Learning:** In React Native, inline functions defined within components (like `renderItem`, `parseMediaUrls`, `formatIncidentDate`, etc.) are re-allocated on every render. If these functions are passed directly into components like `FlatList`, they can trigger expensive re-renders for every single item on screen when the parent component state changes. This is especially impactful for `FlatList`.
+**Action:** Always extract static helper functions outside the component if they don't depend on component state. For functions that depend on state, wrap them in `useCallback` with a proper dependency array before passing them to `FlatList.renderItem`.

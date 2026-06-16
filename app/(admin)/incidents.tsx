@@ -1,4 +1,4 @@
-import { SrmListSkeleton } from '@/components/ui/srm';
+import { SrmListSkeleton, SrmStatusBadge } from '@/components/ui/srm';
 import {
   buildEquipmentSummary,
   createEmptyMaterialFormRow,
@@ -315,9 +315,7 @@ export default function ManageIncidents() {
       >
         <View style={styles.cardContent}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeBadgeText}>{item.type}</Text>
-            </View>
+            <SrmStatusBadge label={item.type} style={{ marginRight: 8 }} />
             <Text style={styles.date}>
               {new Date(item.created_at).toLocaleDateString()}
             </Text>
@@ -348,13 +346,7 @@ export default function ManageIncidents() {
           </View>
         </View>
 
-        <View
-          style={[styles.statusBadge, isOpen ? styles.statusOpen : styles.statusClosed]}
-        >
-          <Text style={[styles.statusText, isOpen ? styles.statusTextOpen : styles.statusTextClosed]}>
-            {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
-          </Text>
-        </View>
+        <SrmStatusBadge variant={isOpen ? 'danger' : 'success'} label={isOpen ? 'EN COURS' : 'CLÔTURÉ'} style={{ paddingHorizontal: 12, paddingVertical: 10, width: 90, alignItems: 'center' }} />
       </TouchableOpacity>
     );
   };
@@ -646,9 +638,7 @@ export default function ManageIncidents() {
                 {/* Modal Header */}
                 <View style={styles.modalHeader}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
-                    </View>
+                    <SrmStatusBadge label={selectedIncident.type} style={{ marginRight: 8 }} />
                     <Text style={styles.detailModalTitle} numberOfLines={1}>
                       {selectedIncident.title || 'Fiche Incident'}
                     </Text>
@@ -1087,19 +1077,6 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
 
-  typeBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.primaryDark,
-  },
-
   date: {
     fontSize: 12,
     color: COLORS.textSecondary,
@@ -1161,35 +1138,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     color: COLORS.statOrange,
-  },
-
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    width: 90,
-    alignItems: 'center',
-  },
-
-  statusOpen: {
-    backgroundColor: '#FEF2F2',
-  },
-
-  statusClosed: {
-    backgroundColor: '#F0FDF4',
-  },
-
-  statusText: {
-    fontWeight: '800',
-    fontSize: 11,
-  },
-
-  statusTextOpen: {
-    color: COLORS.statRed,
-  },
-
-  statusTextClosed: {
-    color: COLORS.statGreen,
   },
 
   footerLoader: {

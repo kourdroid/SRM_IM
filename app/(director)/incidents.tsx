@@ -1,4 +1,4 @@
-import { SrmListSkeleton } from '@/components/ui/srm';
+import { SrmListSkeleton, SrmStatusBadge } from '@/components/ui/srm';
 import { clearLocalSupabaseSession } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { DirectorService, type DirectorIncident, type DirectorIncidentFilters } from '@/src/core/services/directorService';
@@ -188,10 +188,8 @@ function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPre
       <View style={[styles.cardDot, { backgroundColor: isOpen ? COLORS.signalRed : COLORS.signalGreen }]} />
       <View style={{ flex: 1 }}>
         <View style={styles.cardTopRow}>
-          <Text style={styles.typeBadge}>{incident.type}</Text>
-          <Text style={[styles.statusBadge, { color: isOpen ? COLORS.signalRed : COLORS.signalGreen }]}>
-            {isOpen ? 'OUVERT' : 'CLÔTURÉ'}
-          </Text>
+          <SrmStatusBadge label={incident.type} />
+          <SrmStatusBadge variant={isOpen ? 'danger' : 'success'} label={isOpen ? 'OUVERT' : 'CLÔTURÉ'} />
         </View>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {incident.title || `${incident.type} - ${incident.village}`}
@@ -468,19 +466,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 4,
-  },
-  typeBadge: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
-    backgroundColor: COLORS.background,
-    overflow: 'hidden',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: RADIUS.sm,
-  },
-  statusBadge: {
-    ...TYPOGRAPHY.label,
-    textTransform: 'uppercase',
   },
   cardTitle: {
     ...TYPOGRAPHY.title,

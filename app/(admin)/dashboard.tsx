@@ -1,4 +1,4 @@
-import { SrmSkeletonBlock, SrmSkeletonCard } from '@/components/ui/srm';
+import { SrmSkeletonBlock, SrmSkeletonCard, SrmStatusBadge } from '@/components/ui/srm';
 import CustomBarChart from '@/components/CustomBarChart';
 import {
   buildEquipmentSummary,
@@ -295,9 +295,7 @@ export default function AdminDashboard() {
               >
                 <View style={styles.incidentCardMain}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{item.type}</Text>
-                    </View>
+                    <SrmStatusBadge label={item.type} style={{ marginRight: 8 }} />
                     <Text style={styles.incidentDate}>
                       {new Date(item.created_at).toLocaleDateString()}
                     </Text>
@@ -353,9 +351,7 @@ export default function AdminDashboard() {
                 {/* Modal Header */}
                 <View style={styles.modalHeader}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
-                    </View>
+                    <SrmStatusBadge label={selectedIncident.type} style={{ marginRight: 8 }} />
                     <Text style={styles.modalTitle} numberOfLines={1}>
                       {selectedIncident.title || "Détails de l'incident"}
                     </Text>
@@ -372,17 +368,7 @@ export default function AdminDashboard() {
                 <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
                   {/* Status Badge */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <View style={[
-                      styles.statusBadge,
-                      { backgroundColor: selectedIncident.status === 'open' ? '#FEF2F2' : '#F0FDF4' }
-                    ]}>
-                      <Text style={[
-                        styles.statusBadgeText,
-                        { color: selectedIncident.status === 'open' ? COLORS.statRed : COLORS.statGreen }
-                      ]}>
-                        {selectedIncident.status === 'open' ? 'EN COURS' : 'CLÔTURÉ'}
-                      </Text>
-                    </View>
+                    <SrmStatusBadge variant={selectedIncident.status === 'open' ? 'danger' : 'success'} label={selectedIncident.status === 'open' ? 'EN COURS' : 'CLÔTURÉ'} />
                     <Text style={styles.modalDate}>
                       Créé le {new Date(selectedIncident.created_at).toLocaleString()}
                     </Text>
@@ -820,19 +806,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  typeBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.primaryDark,
-  },
-
   incidentDate: {
     fontSize: 12,
     color: COLORS.textSecondary,
@@ -959,17 +932,6 @@ const styles = StyleSheet.create({
 
   modalScroll: {
     padding: 20,
-  },
-
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-
-  statusBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
   },
 
   modalDate: {

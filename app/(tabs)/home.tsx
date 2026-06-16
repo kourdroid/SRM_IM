@@ -11,7 +11,7 @@ import { enqueueStatusUpdate, enqueueSyncMaterials } from '../../db/syncOperatio
 import { useSync } from '../../hooks/useSync';
 import { subscribeSyncCompleted } from '../../lib/syncEvents';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
-import { SrmListSkeleton } from '@/components/ui/srm';
+import { SrmListSkeleton, SrmStatusBadge } from '@/components/ui/srm';
 import {
   buildEquipmentSummary,
   createEmptyMaterialFormRow,
@@ -298,9 +298,7 @@ export default function Home() {
         }} />
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-            <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginRight: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.textPrimary, textTransform: 'uppercase' }}>{item.type}</Text>
-            </View>
+            <SrmStatusBadge label={item.type} style={{ marginRight: 8 }} />
             <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }}>
               {item.village}
             </Text>
@@ -325,19 +323,7 @@ export default function Home() {
             ) : null}
           </View>
         </View>
-        <View style={{
-          paddingHorizontal: SPACING.sm,
-          paddingVertical: SPACING.xs,
-          borderRadius: RADIUS.sm,
-          backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint,
-          borderWidth: 1,
-          borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
-          flexShrink: 0,
-        }}>
-          <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-            {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
-          </Text>
-        </View>
+        <SrmStatusBadge variant={isOpen ? 'danger' : 'success'} label={isOpen ? 'EN COURS' : 'CLÔTURÉ'} />
       </TouchableOpacity>
     );
   };

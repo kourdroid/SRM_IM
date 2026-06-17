@@ -330,8 +330,6 @@ export default function Home() {
           paddingVertical: SPACING.xs,
           borderRadius: RADIUS.sm,
           backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint,
-          borderWidth: 1,
-          borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
           flexShrink: 0,
         }}>
           <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
@@ -501,8 +499,6 @@ export default function Home() {
                     paddingVertical: 6,
                     borderRadius: 4,
                     backgroundColor: selectedIncident.status !== 'closed' ? 'rgba(249, 115, 22, 0.1)' : 'rgba(34, 197, 94, 0.1)',
-                    borderWidth: 1,
-                    borderColor: selectedIncident.status !== 'closed' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(34, 197, 94, 0.2)',
                   }}>
                     <Text style={{
                       fontWeight: '800',

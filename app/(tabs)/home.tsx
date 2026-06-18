@@ -292,7 +292,7 @@ export default function Home() {
           width: 8,
           height: 8,
           borderRadius: RADIUS.full,
-          backgroundColor: isOpen ? COLORS.signalOrange : COLORS.accent,
+          backgroundColor: isOpen ? COLORS.signalRed : COLORS.signalGreen,
           marginTop: 6,
           flexShrink: 0,
         }} />

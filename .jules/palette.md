@@ -1,0 +1,5 @@
+## 2024-06-09 - The Status Truth & Safety Vest Rules
+
+**Learning:** This application follows strict industrial design conventions (`DESIGN.md`). Status colors (Signal Red, Green, Orange, Blue) encode state and must *never* be used decoratively. "Open" incidents strictly map to Signal Red (not Orange). Furthermore, status badges for "Open" and "Closed" should use a tinted background only (no borders), whereas Reclamation (Orange) is uniquely assigned a border. Finally, Electric Lime is restricted to active tab indicators and primary CTAs (max 15% surface area) and cannot be used for general "open" indicators or status dots.
+
+**Action:** Before applying any color to a component, verify its semantic meaning against `DESIGN.md` rules. Ensure `COLORS.signalRed` and `COLORS.signalGreen` are used exclusively for their respective Open/Closed states. For status badges, never use hardcoded RGBA borders or incorrect hex codes; exclusively use the tinted backgrounds (`COLORS.signalRedTint`, etc.) from `src/core/constants/theme.ts`.

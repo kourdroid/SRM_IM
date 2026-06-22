@@ -1,0 +1,4 @@
+## 2024-05-18 - PostgREST Query Injection via Supabase .or()
+**Vulnerability:** Interpolating raw user input directly into a Supabase `.or()` string (e.g., `query.or(\`name.ilike.%${search}%\`)`) allows for PostgREST query injection. An attacker can use commas, periods, or parentheses to inject arbitrary operators and clauses, bypassing authorization or query constraints.
+**Learning:** Supabase translates the `.or()` filter string directly into the PostgREST URL format. Because the PostgREST syntax uses commas `,` to separate clauses and dots `.` for operators, string interpolation without sanitization is inherently dangerous.
+**Prevention:** Always sanitize string inputs passed to `.or()` (or `.and()`) by stripping PostgREST reserved characters (`[,\.\(\)"\:\{\}]`) using `.replace(/[,.()":{}]/g, '')` before interpolation.

@@ -162,7 +162,8 @@ export const IncidentAdminService = {
                 query = query.lt('created_at', end.toISOString().split('T')[0]);
             }
             if (filters.search && filters.search.trim() !== '') {
-                const search = filters.search.trim();
+                // Sanitize user input to prevent PostgREST query injection
+                const search = filters.search.trim().replace(/[,.()":{}]/g, '');
                 query = query.or(`description.ilike.%${search}%,village.ilike.%${search}%,depart_hta.ilike.%${search}%`);
             }
         }

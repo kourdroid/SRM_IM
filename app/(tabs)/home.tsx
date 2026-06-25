@@ -44,6 +44,33 @@ interface Incident {
   synced: number;
 }
 
+// ⚡ Bolt: Hoisted pure helper functions outside component to avoid re-allocation on every render
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch {
+    return 'Date invalide';
+  }
+};
+
+const parseMediaUrls = (value?: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const openIncidentMap = (incident: Incident) => {
+  if (incident.latitude == null || incident.longitude == null) return;
+  const query = `${incident.latitude},${incident.longitude}`;
+  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+};
+
 const INCIDENT_PAGE_SIZE = 30;
 const INCIDENT_LIST_COLUMNS = [
   'id',
@@ -87,17 +114,6 @@ export default function Home() {
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
   const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [isClosingIncident, setIsClosingIncident] = useState(false);
-
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch {
-      return 'Date invalide';
-    }
-  };
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async (reset = true, cursor?: Incident) => {
@@ -221,23 +237,8 @@ export default function Home() {
     }
   };
 
-  const parseMediaUrls = (value?: string | null) => {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const openIncidentMap = (incident: Incident) => {
-    if (incident.latitude == null || incident.longitude == null) return;
-    const query = `${incident.latitude},${incident.longitude}`;
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
-  };
-
-  const openIncidentDetails = async (incident: Incident) => {
+  // ⚡ Bolt: Wrapped in useCallback to maintain stable reference
+  const openIncidentDetails = useCallback(async (incident: Incident) => {
     setSelectedIncident(incident);
     setIsModalVisible(true);
     setShowClosureMaterials(false);
@@ -249,7 +250,7 @@ export default function Home() {
       console.warn('Failed to load incident materials:', error);
       setSelectedIncidentMaterials([]);
     }
-  };
+  }, [db, setSelectedIncident, setIsModalVisible, setShowClosureMaterials, setClosureMaterialRows, setSelectedIncidentMaterials]);
 
   const addClosureMaterialRow = () => {
     setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
@@ -263,7 +264,15 @@ export default function Home() {
     setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  // ⚡ Bolt: Extracted inline onEndReached and wrapped in useCallback
+  const handleEndReached = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      void fetchIncidents(false, incidents.at(-1));
+    }
+  }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
+
+  // ⚡ Bolt: Wrapped renderItem in useCallback to prevent unnecessary re-renders of list items
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
     const hasMedia = parseMediaUrls(item.media_urls).length > 0;
     const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
@@ -340,7 +349,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [openIncidentDetails]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -402,11 +411,7 @@ export default function Home() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            onEndReached={() => {
-              if (hasMore && !isLoadingMore) {
-                void fetchIncidents(false, incidents.at(-1));
-              }
-            }}
+            onEndReached={handleEndReached}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />

@@ -1,0 +1,4 @@
+## 2025-02-28 - PostgREST String Literal Syntax in Supabase .or()
+**Vulnerability:** Unsanitized user input directly interpolated into Supabase `.or()` strings allows for query injection, as the input can contain commas or double quotes that alter the PostgREST query structure.
+**Learning:** Destructively stripping characters (like `,` or `.`) to sanitize input breaks legitimate searches (e.g., times or decimals). Supabase's underlying PostgREST parser expects string literals to be wrapped in double quotes, and any internal double quotes must be escaped by doubling them (`""`).
+**Prevention:** When using `.or()` with dynamic input, always replace user-provided double quotes with `""` and wrap the interpolated value in double quotes (`"value"`).

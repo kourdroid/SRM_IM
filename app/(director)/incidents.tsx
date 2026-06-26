@@ -188,10 +188,14 @@ function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPre
       <View style={[styles.cardDot, { backgroundColor: isOpen ? COLORS.signalRed : COLORS.signalGreen }]} />
       <View style={{ flex: 1 }}>
         <View style={styles.cardTopRow}>
-          <Text style={styles.typeBadge}>{incident.type}</Text>
-          <Text style={[styles.statusBadge, { color: isOpen ? COLORS.signalRed : COLORS.signalGreen }]}>
-            {isOpen ? 'OUVERT' : 'CLÔTURÉ'}
-          </Text>
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>{incident.type}</Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint }]}>
+            <Text style={[styles.statusBadgeText, { color: isOpen ? COLORS.signalRed : COLORS.signalGreen }]}>
+              {isOpen ? 'OUVERT' : 'CLÔTURÉ'}
+            </Text>
+          </View>
         </View>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {incident.title || `${incident.type} - ${incident.village}`}
@@ -227,7 +231,9 @@ function IncidentDetailModal({
             <>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.readOnlyBadge}>LECTURE SEULE</Text>
+                  <View style={styles.readOnlyBadge}>
+                    <Text style={styles.readOnlyBadgeText}>LECTURE SEULE</Text>
+                  </View>
                   <Text style={styles.modalTitle}>{incident.title || `${incident.type} - ${incident.village}`}</Text>
                 </View>
                 <TouchableOpacity style={styles.modalClose} onPress={onClose}>
@@ -470,17 +476,24 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   typeBadge: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
     backgroundColor: COLORS.background,
     overflow: 'hidden',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: RADIUS.sm,
   },
+  typeBadgeText: {
+    ...TYPOGRAPHY.labelUppercase,
+    color: COLORS.textPrimary,
+  },
   statusBadge: {
-    ...TYPOGRAPHY.label,
-    textTransform: 'uppercase',
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: RADIUS.sm,
+  },
+  statusBadgeText: {
+    ...TYPOGRAPHY.labelUppercase,
   },
   cardTitle: {
     ...TYPOGRAPHY.title,
@@ -530,8 +543,6 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   readOnlyBadge: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
     backgroundColor: COLORS.accent,
     alignSelf: 'flex-start',
     overflow: 'hidden',
@@ -539,6 +550,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     marginBottom: SPACING.sm,
+  },
+  readOnlyBadgeText: {
+    ...TYPOGRAPHY.labelUppercase,
+    color: COLORS.textPrimary,
   },
   modalTitle: {
     ...TYPOGRAPHY.title,

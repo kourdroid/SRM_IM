@@ -1,0 +1,3 @@
+## 2024-06-27 - Status Dot Colors
+**Learning:** Status indicators must strictly map to semantic signal colors (Red for open, Green for resolved), not accent or warning colors unless indicating a specific warning/reclamation state. The electric lime accent is exclusively for CTAs and active states, not for indicating resolved states.
+**Action:** Always use `COLORS.signalRed` for open/error states and `COLORS.signalGreen` for closed/success states in status dots and badges.

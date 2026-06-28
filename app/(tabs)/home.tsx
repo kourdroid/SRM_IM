@@ -237,7 +237,7 @@ export default function Home() {
     Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
   };
 
-  const openIncidentDetails = async (incident: Incident) => {
+  const openIncidentDetails = useCallback(async (incident: Incident) => {
     setSelectedIncident(incident);
     setIsModalVisible(true);
     setShowClosureMaterials(false);
@@ -249,7 +249,7 @@ export default function Home() {
       console.warn('Failed to load incident materials:', error);
       setSelectedIncidentMaterials([]);
     }
-  };
+  }, [db]);
 
   const addClosureMaterialRow = () => {
     setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
@@ -263,7 +263,15 @@ export default function Home() {
     setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
 
-  const renderIncidentItem = ({ item }: { item: Incident }) => {
+  // Extract inline function for FlatList onEndReached to prevent unnecessary re-renders
+  const handleEndReached = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      void fetchIncidents(false, incidents.at(-1));
+    }
+  }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
+
+  // Wrap renderItem callback in useCallback to prevent unnecessary re-renders of list items
+  const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
     const hasMedia = parseMediaUrls(item.media_urls).length > 0;
     const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
@@ -340,7 +348,7 @@ export default function Home() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [openIncidentDetails]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
@@ -402,11 +410,7 @@ export default function Home() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            onEndReached={() => {
-              if (hasMore && !isLoadingMore) {
-                void fetchIncidents(false, incidents.at(-1));
-              }
-            }}
+            onEndReached={handleEndReached}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />

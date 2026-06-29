@@ -70,6 +70,28 @@ const INCIDENT_LIST_COLUMNS = [
   'synced',
 ].join(', ');
 
+// Performance: Hoist pure helper function to prevent unnecessary function re-allocations
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch {
+    return 'Date invalide';
+  }
+};
+
+// Performance: Hoist pure helper function to prevent unnecessary function re-allocations
+const parseMediaUrls = (value?: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
 export default function Home() {
   const { user } = useAuth();
   const db = useSQLiteContext();
@@ -87,17 +109,6 @@ export default function Home() {
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
   const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [isClosingIncident, setIsClosingIncident] = useState(false);
-
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch {
-      return 'Date invalide';
-    }
-  };
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async (reset = true, cursor?: Incident) => {
@@ -141,6 +152,13 @@ export default function Home() {
       }
     }
   }, [db, user?.id]);
+
+  // Performance: Extract onEndReached callback to prevent unnecessary re-renders of FlatList
+  const handleLoadMore = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      void fetchIncidents(false, incidents.at(-1));
+    }
+  }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
 
   useFocusEffect(
     useCallback(() => {
@@ -218,16 +236,6 @@ export default function Home() {
       Alert.alert("Erreur", "Impossible de clôturer l'incident");
     } finally {
       setIsClosingIncident(false);
-    }
-  };
-
-  const parseMediaUrls = (value?: string | null) => {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
-    } catch {
-      return [];
     }
   };
 
@@ -402,11 +410,7 @@ export default function Home() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            onEndReached={() => {
-              if (hasMore && !isLoadingMore) {
-                void fetchIncidents(false, incidents.at(-1));
-              }
-            }}
+            onEndReached={handleLoadMore}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />

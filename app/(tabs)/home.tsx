@@ -19,6 +19,27 @@ import {
   type MaterialFormRow,
 } from '@/lib/materials';
 
+// Hoisted pure helper functions to prevent unnecessary function re-allocations during render cycles
+const formatIncidentDate = (dateString?: string) => {
+  if (!dateString) return 'Date inconnue';
+  try {
+    const date = new Date(dateString);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  } catch {
+    return 'Date invalide';
+  }
+};
+
+const parseMediaUrls = (value?: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
 // Define the incident type mapping to SQLite schema
 interface Incident {
   id: string;
@@ -87,17 +108,6 @@ export default function Home() {
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
   const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [isClosingIncident, setIsClosingIncident] = useState(false);
-
-  // Format incident date for display
-  const formatIncidentDate = (dateString?: string) => {
-    if (!dateString) return 'Date inconnue';
-    try {
-      const date = new Date(dateString);
-      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')} • ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    } catch {
-      return 'Date invalide';
-    }
-  };
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async (reset = true, cursor?: Incident) => {
@@ -221,16 +231,6 @@ export default function Home() {
     }
   };
 
-  const parseMediaUrls = (value?: string | null) => {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === 'string') : [];
-    } catch {
-      return [];
-    }
-  };
-
   const openIncidentMap = (incident: Incident) => {
     if (incident.latitude == null || incident.longitude == null) return;
     const query = `${incident.latitude},${incident.longitude}`;
@@ -262,6 +262,13 @@ export default function Home() {
   const updateClosureMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
     setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
+
+  // Extract inline callback to a memoized function to avoid unnecessary re-renders in FlatList
+  const handleEndReached = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      void fetchIncidents(false, incidents.at(-1));
+    }
+  }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
 
   const renderIncidentItem = ({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
@@ -402,11 +409,7 @@ export default function Home() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            onEndReached={() => {
-              if (hasMore && !isLoadingMore) {
-                void fetchIncidents(false, incidents.at(-1));
-              }
-            }}
+            onEndReached={handleEndReached}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />

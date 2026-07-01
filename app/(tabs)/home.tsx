@@ -263,6 +263,14 @@ export default function Home() {
     setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
 
+  // Performance optimization: Memoize the onEndReached callback to prevent
+  // unnecessary re-renders of the FlatList component on every render cycle.
+  const handleEndReached = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      void fetchIncidents(false, incidents.at(-1));
+    }
+  }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
+
   const renderIncidentItem = ({ item }: { item: Incident }) => {
     const isOpen = item.status !== 'closed';
     const hasMedia = parseMediaUrls(item.media_urls).length > 0;
@@ -402,11 +410,7 @@ export default function Home() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            onEndReached={() => {
-              if (hasMore && !isLoadingMore) {
-                void fetchIncidents(false, incidents.at(-1));
-              }
-            }}
+            onEndReached={handleEndReached}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />

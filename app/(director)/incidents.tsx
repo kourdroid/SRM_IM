@@ -188,10 +188,14 @@ function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPre
       <View style={[styles.cardDot, { backgroundColor: isOpen ? COLORS.signalRed : COLORS.signalGreen }]} />
       <View style={{ flex: 1 }}>
         <View style={styles.cardTopRow}>
-          <Text style={styles.typeBadge}>{incident.type}</Text>
-          <Text style={[styles.statusBadge, { color: isOpen ? COLORS.signalRed : COLORS.signalGreen }]}>
-            {isOpen ? 'OUVERT' : 'CLÔTURÉ'}
-          </Text>
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>{incident.type}</Text>
+          </View>
+          <View style={[styles.statusBadgeContainer, { backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint }]}>
+            <Text style={[styles.statusBadge, { color: isOpen ? COLORS.signalRed : COLORS.signalGreen }]}>
+              {isOpen ? 'OUVERT' : 'CLÔTURÉ'}
+            </Text>
+          </View>
         </View>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {incident.title || `${incident.type} - ${incident.village}`}
@@ -470,17 +474,22 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   typeBadge: {
-    ...TYPOGRAPHY.label,
-    color: COLORS.textPrimary,
     backgroundColor: COLORS.background,
-    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: RADIUS.sm,
+  },
+  typeBadgeText: {
+    ...TYPOGRAPHY.labelUppercase,
+    color: COLORS.textPrimary,
+  },
+  statusBadgeContainer: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: RADIUS.sm,
   },
   statusBadge: {
-    ...TYPOGRAPHY.label,
-    textTransform: 'uppercase',
+    ...TYPOGRAPHY.labelUppercase,
   },
   cardTitle: {
     ...TYPOGRAPHY.title,

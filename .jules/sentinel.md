@@ -1,0 +1,4 @@
+## 2025-02-12 - Prevent PostgREST Query Injection in Supabase .or() filters
+**Vulnerability:** Directly interpolating user input into Supabase `.or()` filters without quoting allows for PostgREST query injection. Users can provide input containing commas or quotes to break out of the intended query structure.
+**Learning:** Supabase translates `.or()` string arguments into PostgREST syntax, where commas separate terms and unquoted strings are vulnerable to syntax breaking.
+**Prevention:** Always escape double quotes by replacing them with `""` and wrap the entire interpolated string (including wildcards) in double quotes. Example: `const safeSearch = search.replace(/"/g, '""'); query.or(\`description.ilike."%${safeSearch}%"\`);`

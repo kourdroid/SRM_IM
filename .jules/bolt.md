@@ -1,0 +1,1 @@
+## 2026-07-02 - Component Function Hoisting\n**Learning:** Pure helper functions (like date formatters and parsers) declared inside a React component are re-allocated on every render, which can cause performance issues in list components.\n**Action:** Hoist these pure functions outside the component scope to ensure a single, stable memory reference is used.

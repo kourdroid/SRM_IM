@@ -167,6 +167,13 @@ export default function Home() {
     });
   }, [fetchIncidents]);
 
+  // Optimization: Memoize the onEndReached callback to prevent unnecessary FlatList re-renders
+  const handleEndReached = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      void fetchIncidents(false, incidents.at(-1));
+    }
+  }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
+
   const handleCloseIncident = async (incident: Incident) => {
     const hasExistingMaterials = selectedIncidentMaterials.length > 0;
     if (!hasExistingMaterials && !showClosureMaterials) {
@@ -402,11 +409,7 @@ export default function Home() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            onEndReached={() => {
-              if (hasMore && !isLoadingMore) {
-                void fetchIncidents(false, incidents.at(-1));
-              }
-            }}
+            onEndReached={handleEndReached}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />

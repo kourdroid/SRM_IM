@@ -163,7 +163,9 @@ export const IncidentAdminService = {
             }
             if (filters.search && filters.search.trim() !== '') {
                 const search = filters.search.trim();
-                query = query.or(`description.ilike.%${search}%,village.ilike.%${search}%,depart_hta.ilike.%${search}%`);
+                // Prevent PostgREST query injection by escaping quotes and wrapping values in PostgREST string literals.
+                const safeSearch = search.replace(/"/g, '""');
+                query = query.or(`description.ilike."%${safeSearch}%",village.ilike."%${safeSearch}%",depart_hta.ilike."%${safeSearch}%"`);
             }
         }
 

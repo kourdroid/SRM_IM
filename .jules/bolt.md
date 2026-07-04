@@ -1,0 +1,3 @@
+## 2024-07-04 - React Native FlatList Performance
+**Learning:** React Native's `FlatList` requires stable references for its `renderItem` and `onEndReached` props. Passing inline functions or unmemoized functions causes these to be recreated on every render, triggering unnecessary re-renders of the list items and negatively impacting performance, especially for long lists or complex list items.
+**Action:** Always wrap `renderItem` and `onEndReached` handlers in `useCallback` when passing them to `FlatList`. Additionally, ensure any helper functions called within these handlers are also wrapped in `useCallback` to maintain stable references, preventing infinite loops or unnecessary re-allocations.

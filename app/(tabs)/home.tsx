@@ -330,8 +330,6 @@ export default function Home() {
           paddingVertical: SPACING.xs,
           borderRadius: RADIUS.sm,
           backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint,
-          borderWidth: 1,
-          borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
           flexShrink: 0,
         }}>
           <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
@@ -500,15 +498,13 @@ export default function Home() {
                     paddingHorizontal: 12,
                     paddingVertical: 6,
                     borderRadius: 4,
-                    backgroundColor: selectedIncident.status !== 'closed' ? 'rgba(249, 115, 22, 0.1)' : 'rgba(34, 197, 94, 0.1)',
-                    borderWidth: 1,
-                    borderColor: selectedIncident.status !== 'closed' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+                    backgroundColor: selectedIncident.status !== 'closed' ? COLORS.signalRedTint : COLORS.signalGreenTint,
                   }}>
                     <Text style={{
                       fontWeight: '800',
                       fontSize: 12,
                       letterSpacing: 0.5,
-                      color: selectedIncident.status !== 'closed' ? '#EA580C' : '#16A34A'
+                      color: selectedIncident.status !== 'closed' ? COLORS.signalRed : COLORS.signalGreen
                     }}>
                       {selectedIncident.status !== 'closed' ? 'EN COURS' : 'CLÔTURÉ'}
                     </Text>

@@ -1,0 +1,3 @@
+## 2025-02-12 - Inline functions in FlatList renderItem
+**Learning:** React Native's `FlatList` component is sensitive to its `renderItem` prop receiving a new function reference on every render. If `renderItem` is defined as a non-memoized inline function within the component's render body, it causes unnecessary re-renders of all list items whenever the parent component re-renders (e.g. state changes like `isModalVisible`).
+**Action:** Always wrap `renderItem` functions in `useCallback`. Ensure any functions it depends on (like `openIncidentDetails`) are also wrapped in `useCallback` to satisfy dependency rules and maintain stable references.

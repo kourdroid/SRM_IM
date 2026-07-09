@@ -1,0 +1,3 @@
+## 2025-02-28 - Stale closures in memoized list render items
+**Learning:** When memoizing `renderItem` using `useCallback` for `FlatList` or `FlashList` in React Native, the dependency array must strictly include all state variables and helper functions referenced within the callback. Failing to do so causes a stale closure bug where the list item always renders with the initial state values, even after asynchronous updates to state variables.
+**Action:** When adding `useCallback` to a render function, thoroughly inspect the entire function body to identify all external dependencies (state variables, props, or other functions that use them) and explicitly include them in the dependency array to ensure the callback has access to the most recent data.

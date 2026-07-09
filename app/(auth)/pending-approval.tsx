@@ -37,7 +37,7 @@ export default function PendingApproval() {
         <Text style={styles.kicker}>COMPTE EN ATTENTE</Text>
         <Text style={styles.title}>Approbation administrateur requise</Text>
         <Text style={styles.message}>
-          Votre compte a été créé. Un administrateur doit l&apos;approuver avant l&apos;accès aux incidents SRM.
+          Votre compte a été créé. Un administrateur doit l&apos;approuver avant l&apos;accès aux incidents Intervex.
         </Text>
 
         <TouchableOpacity

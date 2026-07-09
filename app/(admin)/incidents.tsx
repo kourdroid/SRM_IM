@@ -10,7 +10,7 @@ import { IncidentAdminService, type Incident, type IncidentFilters } from '@/src
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -286,11 +286,11 @@ export default function ManageIncidents() {
     return agent?.name || 'Agent inconnu';
   };
 
-  const openIncidentDetails = (incident: Incident) => {
+  const openIncidentDetails = useCallback((incident: Incident) => {
     setSelectedIncident(incident);
     setShowClosureMaterials(false);
     setClosureMaterialRows([createEmptyMaterialFormRow()]);
-  };
+  }, []);
 
   const addClosureMaterialRow = () => {
     setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
@@ -304,7 +304,8 @@ export default function ManageIncidents() {
     setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
 
-  const renderItem = ({ item }: { item: Incident }) => {
+  // Prevent unnecessary re-renders in FlashList/FlatList by memoizing the renderItem callback
+  const renderItem = useCallback(({ item }: { item: Incident }) => {
     const isOpen = item.status === 'open';
 
     return (
@@ -357,7 +358,55 @@ export default function ManageIncidents() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [openIncidentDetails]);
+
+  // Prevent unnecessary re-renders in FlashList/FlatList by memoizing the renderItem callback
+  const renderAgentItem = useCallback(({ item }: { item: { id: string; name: string | null } }) => (
+    <TouchableOpacity
+      style={[
+        styles.communeRow,
+        agentId === item.id && styles.communeRowActive
+      ]}
+      onPress={() => {
+        setAgentId(item.id);
+        setShowAgentModal(false);
+      }}
+    >
+      <Text style={[
+        styles.communeRowText,
+        agentId === item.id && styles.communeRowTextActive
+      ]}>
+        {item.name || 'Agent inconnu'}
+      </Text>
+      {agentId === item.id && (
+        <Ionicons name="checkmark" size={20} color={COLORS.primaryDark} />
+      )}
+    </TouchableOpacity>
+  ), [agentId]);
+
+  // Prevent unnecessary re-renders in FlashList/FlatList by memoizing the renderItem callback
+  const renderCommuneItem = useCallback(({ item }: { item: { id: string; name: string } }) => (
+    <TouchableOpacity
+      style={[
+        styles.communeRow,
+        communeId === item.id && styles.communeRowActive
+      ]}
+      onPress={() => {
+        setCommuneId(item.id);
+        setShowCommuneModal(false);
+      }}
+    >
+      <Text style={[
+        styles.communeRowText,
+        communeId === item.id && styles.communeRowTextActive
+      ]}>
+        {item.name}
+      </Text>
+      {communeId === item.id && (
+        <Ionicons name="checkmark" size={20} color={COLORS.primaryDark} />
+      )}
+    </TouchableOpacity>
+  ), [communeId]);
 
   return (
     <View style={styles.container}>
@@ -559,28 +608,7 @@ export default function ManageIncidents() {
             <FlatList
               data={[{ id: 'all', name: 'Toutes les Communes' }, ...communes]}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.communeRow,
-                    communeId === item.id && styles.communeRowActive
-                  ]}
-                  onPress={() => {
-                    setCommuneId(item.id);
-                    setShowCommuneModal(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.communeRowText,
-                    communeId === item.id && styles.communeRowTextActive
-                  ]}>
-                    {item.name}
-                  </Text>
-                  {communeId === item.id && (
-                    <Ionicons name="checkmark" size={20} color={COLORS.primaryDark} />
-                  )}
-                </TouchableOpacity>
-              )}
+              renderItem={renderCommuneItem}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
             />
           </View>
@@ -604,28 +632,7 @@ export default function ManageIncidents() {
             <FlatList
               data={[{ id: 'all', name: 'Tous les Agents' }, ...agents]}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.communeRow,
-                    agentId === item.id && styles.communeRowActive
-                  ]}
-                  onPress={() => {
-                    setAgentId(item.id);
-                    setShowAgentModal(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.communeRowText,
-                    agentId === item.id && styles.communeRowTextActive
-                  ]}>
-                    {item.name || 'Agent inconnu'}
-                  </Text>
-                  {agentId === item.id && (
-                    <Ionicons name="checkmark" size={20} color={COLORS.primaryDark} />
-                  )}
-                </TouchableOpacity>
-              )}
+              renderItem={renderAgentItem}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
             />
           </View>

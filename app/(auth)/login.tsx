@@ -91,7 +91,7 @@ export default function Login() {
       >
         {/* ── Brand Mark ── */}
         <View style={styles.brandSection}>
-          <Text style={styles.brandName}>SRM</Text>
+          <Text style={styles.brandName}>Intervex</Text>
           <Text style={styles.brandSub}>Gestion des Incidents</Text>
           <Text style={styles.welcomeText}>Bon retour</Text>
         </View>
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
   brandName: {
     ...TYPOGRAPHY.display,
     color: COLORS.textPrimary,
-    letterSpacing: 8,
+    letterSpacing: 2,
     textTransform: 'uppercase',
     marginBottom: SPACING.sm,
   },

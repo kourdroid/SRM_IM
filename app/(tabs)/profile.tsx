@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Profile() {
   const { user, isAdmin } = useAuth();
-  const appVersion = Constants.expoConfig?.version ?? '1.0.5';
+  const appVersion = Constants.expoConfig?.version ?? '1.0.7';
 
   const handleSignOut = async () => {
     try {
@@ -70,7 +70,7 @@ export default function Profile() {
 
       <View style={styles.footer}>
         <Text style={styles.version}>VERSION {appVersion}</Text>
-        <Text style={styles.product}>SRM Incident Management System</Text>
+        <Text style={styles.product}>Intervex Incident Management</Text>
       </View>
     </SafeAreaView>
   );

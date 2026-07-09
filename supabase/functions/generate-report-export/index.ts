@@ -3,7 +3,9 @@ import * as XLSX from 'xlsx';
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 100_000;
+const OPEN_FOLLOW_UP_DAYS = 7;
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+type SupabaseClient = ReturnType<typeof createClient>;
 
 interface ExportRequest {
   startDate: string;
@@ -13,6 +15,11 @@ interface ExportRequest {
   type?: 'BT' | 'MT';
   status?: 'open' | 'closed';
   reclamation?: boolean;
+}
+
+interface FilterLabels {
+  commune: string;
+  agent: string;
 }
 
 Deno.serve(async (request) => {
@@ -116,7 +123,8 @@ Deno.serve(async (request) => {
       throw new Error(`Export exceeds the ${MAX_ROWS} row safety limit. Reduce the date range.`);
     }
 
-    const workbook = buildWorkbook(body, incidentRows);
+    const filterLabels = await loadFilterLabels(admin, body);
+    const workbook = buildWorkbook(body, incidentRows, filterLabels);
     const workbookBytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
     const storagePath = `${userId}/${job.id}.xlsx`;
     const { error: uploadError } = await admin.storage
@@ -162,6 +170,10 @@ interface ReportRow {
   commune_name: string;
   village: string;
   agent_name: string;
+  equipment_used: string;
+  description: string;
+  reclamation_name: string;
+  reclamation_by: string;
   created_at: string;
   closed_at: string;
   closure_duration_hours: number | null;
@@ -178,17 +190,43 @@ interface ReportMaterial {
   quantity: number;
 }
 
-function buildWorkbook(filters: ExportRequest, rows: ReportRow[]): XLSX.WorkBook {
+async function loadFilterLabels(admin: SupabaseClient, filters: ExportRequest): Promise<FilterLabels> {
+  const [commune, agent] = await Promise.all([
+    filters.communeId ? loadSingleName(admin, 'communes', filters.communeId) : Promise.resolve(null),
+    filters.agentId ? loadSingleName(admin, 'user_profiles', filters.agentId) : Promise.resolve(null),
+  ]);
+
+  return {
+    commune: commune || filters.communeId || 'Toutes',
+    agent: agent || filters.agentId || 'Tous',
+  };
+}
+
+async function loadSingleName(admin: SupabaseClient, table: 'communes' | 'user_profiles', id: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from(table)
+    .select('name')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    return null;
+  }
+
+  return asString(asRecord(data).name) || null;
+}
+
+function buildWorkbook(filters: ExportRequest, rows: ReportRow[], filterLabels: FilterLabels): XLSX.WorkBook {
   const workbook = XLSX.utils.book_new();
   const summary = buildSummary(rows);
 
   appendJsonSheet(workbook, 'Résumé', [
-    { indicateur: 'Date début', valeur: filters.startDate },
-    { indicateur: 'Date fin', valeur: filters.endDate },
-    { indicateur: 'Filtre commune', valeur: filters.communeId || 'Toutes' },
-    { indicateur: 'Filtre agent', valeur: filters.agentId || 'Tous' },
+    { indicateur: 'Période', valeur: `${filters.startDate} au ${filters.endDate}` },
+    { indicateur: 'Filtre commune', valeur: filterLabels.commune },
+    { indicateur: 'Filtre agent', valeur: filterLabels.agent },
     { indicateur: 'Filtre réseau', valeur: filters.type || 'BT et MT' },
-    { indicateur: 'Filtre statut', valeur: filters.status || 'Tous' },
+    { indicateur: 'Filtre statut', valeur: statusFilterLabel(filters.status) },
+    { indicateur: 'Filtre réclamation', valeur: reclamationFilterLabel(filters.reclamation) },
     { indicateur: 'Total incidents', valeur: summary.total },
     { indicateur: 'Ouverts', valeur: summary.open },
     { indicateur: 'Clôturés', valeur: summary.closed },
@@ -197,29 +235,31 @@ function buildWorkbook(filters: ExportRequest, rows: ReportRow[]): XLSX.WorkBook
   ]);
 
   appendJsonSheet(workbook, 'Incidents', rows.map((row) => ({
-    id: row.id,
-    titre: row.title,
-    reseau: row.type,
-    statut: row.status,
-    type_incident: row.incident_type,
-    depart_hta: row.depart_hta,
-    commune: row.commune_name,
-    quartier_village: row.village,
-    agent: row.agent_name,
-    cree_le: formatDateTime(row.created_at),
-    cloture_le: formatDateTime(row.closed_at),
-    duree_cloture_heures: row.closure_duration_hours,
-    duree_cloture_jours: row.closure_duration_hours === null ? null : round(row.closure_duration_hours / 24),
-    latitude: row.latitude,
-    longitude: row.longitude,
-    nombre_photos: row.media_count,
-    reclamation: row.reclamation ? 'Oui' : 'Non',
-    materiels: row.materials_summary,
+    'ID incident': row.id,
+    'Réseau': row.type || 'Non renseigné',
+    'Statut': statusLabel(row.status),
+    'Commune': communeLabel(row),
+    'Quartier / village': row.village || 'Non renseigné',
+    "Type d'incident": incidentTypeLabel(row),
+    'Départ HTA': departHtaLabel(row),
+    'Agent': agentLabel(row),
+    'Date création': formatDateTime(row.created_at),
+    'Date clôture': formatDateTime(row.closed_at),
+    'Durée clôture (heures)': row.closure_duration_hours,
+    'Durée clôture (jours)': row.closure_duration_hours === null ? null : round(row.closure_duration_hours / 24),
+    'Réclamation': yesNo(row.reclamation),
+    'Réclamant': row.reclamation_name || '',
+    'Réclamation par': row.reclamation_by || '',
+    'Matériel utilisé': materialsLabel(row),
+    'GPS disponible': yesNo(hasGps(row)),
+    'Photos disponibles': yesNo(hasPhotos(row)),
+    'Description': row.description,
   })));
 
-  appendJsonSheet(workbook, 'Matériels', sumMaterials(rows));
-  appendJsonSheet(workbook, 'Départs HTA', countBy(rows.filter(row => row.type === 'MT'), row => row.depart_hta || 'Non renseigné'));
-  appendJsonSheet(workbook, 'Types incidents', countBy(rows, row => `${row.type} - ${row.incident_type || 'Non classé'}`));
+  appendJsonSheet(workbook, 'Suivi opérationnel', buildOperationalFollowUp(rows));
+  appendJsonSheet(workbook, 'Matériels détail', buildMaterialDetailRows(rows));
+  appendJsonSheet(workbook, 'Matériels totaux', sumMaterials(rows));
+  appendJsonSheet(workbook, 'Synthèses', buildSynthesisRows(rows));
 
   return workbook;
 }
@@ -254,6 +294,10 @@ function parseReportRow(value: unknown): ReportRow {
     commune_name: asString(row.commune_name),
     village: asString(row.village),
     agent_name: asString(row.agent_name),
+    equipment_used: asString(row.equipment_used),
+    description: asString(row.description),
+    reclamation_name: asString(row.reclamation_name),
+    reclamation_by: asString(row.reclamation_by),
     created_at: asString(row.created_at),
     closed_at: asString(row.closed_at),
     closure_duration_hours: asNullableNumber(row.closure_duration_hours),
@@ -282,15 +326,80 @@ function buildSummary(rows: ReportRow[]) {
   };
 }
 
-function countBy(rows: ReportRow[], getLabel: (row: ReportRow) => string): Record<string, unknown>[] {
+function buildOperationalFollowUp(rows: ReportRow[]): Record<string, unknown>[] {
+  const now = new Date();
+  const followUpRows: Record<string, unknown>[] = [];
+
+  rows.forEach((row) => {
+    const base = {
+      'ID incident': row.id,
+      'Date création': formatDateTime(row.created_at),
+      'Commune': communeLabel(row),
+      'Agent': agentLabel(row),
+      'Réseau': row.type || 'Non renseigné',
+      'Statut': statusLabel(row.status),
+      'Âge (jours)': incidentAgeDays(row, now),
+    };
+
+    if (!hasGps(row)) {
+      followUpRows.push({ ...base, 'Problème': 'GPS manquant', 'Détail': 'Latitude et longitude absentes.' });
+    }
+    if (!hasPhotos(row)) {
+      followUpRows.push({ ...base, 'Problème': 'Photo manquante', 'Détail': 'Aucune photo associée à l’incident.' });
+    }
+    if (row.type === 'MT' && !row.depart_hta) {
+      followUpRows.push({ ...base, 'Problème': 'Départ HTA manquant', 'Détail': 'Incident MT sans départ HTA renseigné.' });
+    }
+    if (row.status === 'closed' && (!row.closed_at || row.closure_duration_hours === null)) {
+      followUpRows.push({ ...base, 'Problème': 'Clôture incomplète', 'Détail': 'Incident clôturé sans date ou durée de clôture.' });
+    }
+    if (row.status !== 'closed' && incidentAgeDays(row, now) >= OPEN_FOLLOW_UP_DAYS) {
+      followUpRows.push({
+        ...base,
+        'Problème': `Incident ouvert depuis ${OPEN_FOLLOW_UP_DAYS} jours ou plus`,
+        'Détail': 'Incident encore en cours après le seuil de suivi.',
+      });
+    }
+  });
+
+  return followUpRows;
+}
+
+function buildMaterialDetailRows(rows: ReportRow[]): Record<string, unknown>[] {
+  return rows.flatMap((row) =>
+    row.materials.map((material) => ({
+      'ID incident': row.id,
+      'Date incident': formatDateTime(row.created_at),
+      'Commune': communeLabel(row),
+      'Agent': agentLabel(row),
+      'Réseau': row.type || 'Non renseigné',
+      "Type d'incident": incidentTypeLabel(row),
+      'Matériel': material.material_name,
+      'Quantité': round(material.quantity),
+    }))
+  );
+}
+
+function buildSynthesisRows(rows: ReportRow[]): Record<string, unknown>[] {
+  return [
+    ...countBy(rows, row => communeLabel(row), 'Commune'),
+    ...countBy(rows, row => agentLabel(row), 'Agent'),
+    ...countBy(rows, row => `${row.type || 'Non renseigné'} - ${incidentTypeLabel(row)}`, "Type d'incident"),
+    ...countBy(rows.filter(row => row.type === 'MT'), row => departHtaLabel(row), 'Départ HTA'),
+    ...countBy(rows, row => statusLabel(row.status), 'Statut'),
+    ...countBy(rows, row => yesNo(row.reclamation), 'Réclamation'),
+  ];
+}
+
+function countBy(rows: ReportRow[], getLabel: (row: ReportRow) => string, category: string): Record<string, unknown>[] {
   const counts = new Map<string, number>();
   rows.forEach((row) => {
     const label = getLabel(row);
     counts.set(label, (counts.get(label) || 0) + 1);
   });
   return Array.from(counts.entries())
-    .map(([libelle, incidents]) => ({ libelle, incidents }))
-    .sort((left, right) => Number(right.incidents) - Number(left.incidents) || String(left.libelle).localeCompare(String(right.libelle)));
+    .map(([libelle, incidents]) => ({ catégorie: category, libellé: libelle, incidents }))
+    .sort((left, right) => Number(right.incidents) - Number(left.incidents) || String(left.libellé).localeCompare(String(right.libellé)));
 }
 
 function sumMaterials(rows: ReportRow[]): Record<string, unknown>[] {
@@ -301,8 +410,64 @@ function sumMaterials(rows: ReportRow[]): Record<string, unknown>[] {
     });
   });
   return Array.from(sums.entries())
-    .map(([materiel, quantite]) => ({ materiel, quantite: round(quantite) }))
-    .sort((left, right) => Number(right.quantite) - Number(left.quantite) || String(left.materiel).localeCompare(String(right.materiel)));
+    .map(([materiel, quantite]) => ({ 'Matériel': materiel, 'Quantité totale': round(quantite) }))
+    .sort((left, right) => Number(right['Quantité totale']) - Number(left['Quantité totale']) || String(left['Matériel']).localeCompare(String(right['Matériel'])));
+}
+
+function statusLabel(status: string): string {
+  return status === 'closed' ? 'Clôturé' : 'En cours';
+}
+
+function statusFilterLabel(status?: 'open' | 'closed'): string {
+  if (status === 'open') return 'En cours';
+  if (status === 'closed') return 'Clôturé';
+  return 'Tous';
+}
+
+function reclamationFilterLabel(reclamation?: boolean): string {
+  if (reclamation === true) return 'Avec réclamation';
+  if (reclamation === false) return 'Sans réclamation';
+  return 'Toutes';
+}
+
+function yesNo(value: boolean): string {
+  return value ? 'Oui' : 'Non';
+}
+
+function communeLabel(row: ReportRow): string {
+  return row.commune_name || 'Commune inconnue';
+}
+
+function agentLabel(row: ReportRow): string {
+  return row.agent_name || 'Agent inconnu';
+}
+
+function incidentTypeLabel(row: ReportRow): string {
+  return row.incident_type || 'Non classé';
+}
+
+function departHtaLabel(row: ReportRow): string {
+  return row.depart_hta || 'Non renseigné';
+}
+
+function materialsLabel(row: ReportRow): string {
+  return row.materials_summary || row.equipment_used || 'Non renseigné';
+}
+
+function hasGps(row: ReportRow): boolean {
+  return row.latitude !== null && row.longitude !== null;
+}
+
+function hasPhotos(row: ReportRow): boolean {
+  return row.media_count > 0;
+}
+
+function incidentAgeDays(row: ReportRow, now: Date): number {
+  const createdAt = new Date(row.created_at);
+  if (Number.isNaN(createdAt.getTime())) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / 86_400_000));
 }
 
 function parseMaterials(value: unknown): ReportMaterial[] {

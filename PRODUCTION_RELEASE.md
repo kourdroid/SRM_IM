@@ -24,7 +24,7 @@ pnpm build:preview
 
 Install the preview APK on at least one low-end Android device. Test offline
 incident creation, app termination before sync, reconnect, five-photo upload,
-field closure, admin closure, and full CSV report export.
+field closure, admin closure, and full XLSX report export.
 
 ## Google Play
 

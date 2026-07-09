@@ -1,7 +1,7 @@
 {
   "name": "srm",
   "main": "expo-router/entry",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -38,6 +38,7 @@
     "expo-image": "~3.0.11",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",
+    "expo-insights": "~0.10.8",
     "expo-linear-gradient": "^15.0.8",
     "expo-linking": "~8.0.12",
     "expo-location": "^19.0.8",
@@ -71,6 +72,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "babel-preset-expo": "^54.0.11",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"

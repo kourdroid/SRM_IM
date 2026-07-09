@@ -194,7 +194,7 @@ export default function AdminDashboard() {
         <View style={styles.headerSection}>
           <View style={styles.headerInner}>
             <View>
-              <Text style={styles.headerGreeting}>SRM</Text>
+              <Text style={styles.headerGreeting}>Intervex</Text>
               <Text style={styles.headerTitle}>Tableau de bord</Text>
             </View>
             <View style={styles.headerBadge}>

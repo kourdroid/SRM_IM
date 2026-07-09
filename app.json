@@ -1,22 +1,22 @@
 {
   "expo": {
-    "name": "SRM",
-    "slug": "SRM",
-    "version": "1.0.5",
+    "name": "Intervex",
+    "slug": "intervex",
+    "version": "1.0.7",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "srm",
+    "scheme": "intervex",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "SRM utilise la caméra pour joindre une photo à un incident terrain.",
-        "NSPhotoLibraryUsageDescription": "SRM utilise la galerie pour joindre une photo à un incident terrain.",
-        "NSLocationWhenInUseUsageDescription": "SRM utilise la position GPS pour localiser précisément l'incident signalé."
+        "NSCameraUsageDescription": "Intervex utilise la caméra pour joindre une photo à un incident terrain.",
+        "NSPhotoLibraryUsageDescription": "Intervex utilise la galerie pour joindre une photo à un incident terrain.",
+        "NSLocationWhenInUseUsageDescription": "Intervex utilise la position GPS pour localiser précisément l'incident signalé."
       }
     },
     "android": {
@@ -34,7 +34,7 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.kaliits.srmims",
-      "versionCode": 6
+      "versionCode": 8
     },
     "web": {
       "output": "static",
@@ -57,15 +57,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "SRM utilise la galerie pour joindre une photo à un incident terrain.",
-          "cameraPermission": "SRM utilise la caméra pour joindre une photo à un incident terrain.",
+          "photosPermission": "Intervex utilise la galerie pour joindre une photo à un incident terrain.",
+          "cameraPermission": "Intervex utilise la caméra pour joindre une photo à un incident terrain.",
           "microphonePermission": false
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "SRM utilise la position GPS pour localiser précisément l'incident signalé."
+          "locationWhenInUsePermission": "Intervex utilise la position GPS pour localiser précisément l'incident signalé."
         }
       ]
     ],

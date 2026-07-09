@@ -168,7 +168,8 @@ export const ReportService = {
     });
 
     if (error) {
-      throw new Error(`Server export failed: ${error.message}`);
+      const detail = await getFunctionErrorMessage(error);
+      throw new Error(`Server export failed: ${detail || error.message}`);
     }
     const record = asRecord(data);
     const downloadUrl = asString(record.downloadUrl);
@@ -178,6 +179,26 @@ export const ReportService = {
     return downloadUrl;
   },
 };
+
+async function getFunctionErrorMessage(error: unknown): Promise<string | null> {
+  const context = asRecord(error).context;
+  const response = isJsonResponse(context) ? context : asRecord(context).response;
+  if (!response || typeof (response as { json?: unknown }).json !== 'function') {
+    return null;
+  }
+
+  try {
+    const body = await (response as { json: () => Promise<unknown> }).json();
+    const message = asString(asRecord(body).error);
+    return message || null;
+  } catch {
+    return null;
+  }
+}
+
+function isJsonResponse(value: unknown): value is { json: () => Promise<unknown> } {
+  return Boolean(value && typeof value === 'object' && typeof (value as { json?: unknown }).json === 'function');
+}
 
 async function fetchAllRows(params: RpcParams): Promise<ReportRow[]> {
   const rows: ReportRow[] = [];

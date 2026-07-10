@@ -62,6 +62,24 @@ const ROLE_OPTIONS: {
   },
 ];
 
+// ⚡ Bolt: Hoisted pure helper function to prevent recreation on every render
+const getInitials = (name: string | null): string => {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0][0].toUpperCase();
+};
+
+// ⚡ Bolt: Hoisted pure helper function to prevent recreation on every render
+const getAvatarColor = (id: string): string => {
+  const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+};
+
 export default function UserManagement() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,22 +210,6 @@ export default function UserManagement() {
     } finally {
       setCreating(false);
     }
-  };
-
-  const getInitials = (name: string | null): string => {
-    if (!name) return '?';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return parts[0][0].toUpperCase();
-  };
-
-  const getAvatarColor = (id: string): string => {
-    const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
   };
 
   const renderItem = ({ item }: { item: UserProfile }) => {

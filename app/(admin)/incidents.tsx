@@ -7,6 +7,7 @@ import {
 } from '@/lib/materials';
 import { supabase } from '@/lib/supabase';
 import { IncidentAdminService, type Incident, type IncidentFilters } from '@/src/core/services/incidentAdminService';
+import { TYPOGRAPHY } from '@/src/core/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
@@ -1102,8 +1103,7 @@ const styles = StyleSheet.create({
   },
 
   typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
+    ...TYPOGRAPHY.labelUppercase,
     color: COLORS.primaryDark,
   },
 

@@ -9,6 +9,7 @@ import {
 import { type ChartDataPoint, type DashboardStats } from '@/src/core/entities/admin';
 import { AdminService } from '@/src/core/services/adminService';
 import { IncidentAdminService, type Incident } from '@/src/core/services/incidentAdminService';
+import { TYPOGRAPHY } from '@/src/core/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -828,8 +829,7 @@ const styles = StyleSheet.create({
   },
 
   typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
+    ...TYPOGRAPHY.labelUppercase,
     color: COLORS.primaryDark,
   },
 

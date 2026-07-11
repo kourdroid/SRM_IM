@@ -511,9 +511,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   badgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.7,
+    ...TYPOGRAPHY.labelUppercase,
   },
   searchRow: {
     height: 52,

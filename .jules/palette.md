@@ -1,3 +1,3 @@
-2025-07-09 - Missing Platform Shadows on Stat Cards
-Learning: Stat cards (kpiCard) in the dashboard were missing the platform-specific shadow/elevation defined in the elevation model, which makes them feel too flat.
-Action: Always verify the three-tier depth model and ensure platform-specific ambient shadows are applied to stat cards according to DESIGN.md.
+2024-07-11 - Typographic Hierarchy for Status Badges
+Learning: The application enforces a strict typographic hierarchy for specific UI elements, such as status badges, which must use uppercase text and wide tracking defined by the `TYPOGRAPHY.labelUppercase` design token. Hardcoding these values violates the system's consistency.
+Action: Always utilize the `TYPOGRAPHY.labelUppercase` token from the design system when styling status badges, role indicators, or type badges to ensure visual consistency.

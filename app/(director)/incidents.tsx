@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -90,6 +90,13 @@ export default function DirectorIncidents() {
     void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
   };
 
+  const keyExtractor = useCallback((item: DirectorIncident) => item.id, []);
+
+  // Prevent unnecessary re-renders in FlashList/FlatList by memoizing the renderItem callback
+  const renderIncidentItem = useCallback(({ item }: { item: DirectorIncident }) => (
+    <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
+  ), [setSelectedIncident]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
@@ -129,10 +136,8 @@ export default function DirectorIncidents() {
       ) : (
         <FlashList
           data={incidents}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
-          )}
+          keyExtractor={keyExtractor}
+          renderItem={renderIncidentItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.listContent}

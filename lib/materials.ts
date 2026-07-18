@@ -1,3 +1,5 @@
+import * as Crypto from 'expo-crypto';
+
 export interface IncidentMaterialInput {
   client_material_id: string;
   material_name: string;
@@ -11,7 +13,8 @@ export interface MaterialFormRow {
 }
 
 export function createMaterialClientId(): string {
-  return `material-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  // Prevent predictable client IDs by using cryptographically secure UUIDs
+  return `material-${Date.now()}-${Crypto.randomUUID()}`;
 }
 
 export function createEmptyMaterialFormRow(): MaterialFormRow {

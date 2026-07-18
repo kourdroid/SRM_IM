@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
+import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router, useFocusEffect } from "expo-router";
@@ -396,11 +397,13 @@ export default function CreateIncidentScreen() {
   };
 
   const createClientId = () => {
-    return `incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Prevent predictable client IDs by using cryptographically secure UUIDs
+    return `incident-${Date.now()}-${Crypto.randomUUID()}`;
   };
 
   const createMediaClientId = () => {
-    return `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Prevent predictable media IDs by using cryptographically secure UUIDs
+    return `media-${Date.now()}-${Crypto.randomUUID()}`;
   };
 
   const addMaterialRow = () => {

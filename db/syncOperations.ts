@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import * as Crypto from 'expo-crypto';
 
 export type SyncOperationType =
   | 'create_incident'
@@ -69,7 +70,7 @@ export async function enqueueStatusUpdate(
   db: SQLiteDatabase,
   localIncidentId: number,
   status: 'open' | 'closed',
-  clientEventId = `status-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  clientEventId = `status-${Crypto.randomUUID()}`
 ): Promise<void> {
   await enqueueSyncOperation(
     db,
@@ -85,7 +86,7 @@ export async function enqueueMediaUpload(
   db: SQLiteDatabase,
   localIncidentId: number,
   localUri: string,
-  clientMediaId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  clientMediaId = `media-${Crypto.randomUUID()}`
 ): Promise<void> {
   await enqueueSyncOperation(
     db,

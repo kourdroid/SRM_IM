@@ -18,6 +18,7 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as Crypto from 'expo-crypto';
 import { useAuth } from "../../contexts/AuthContext";
 import { insertIncidentMaterials } from '../../db/incidentMaterials';
 import {
@@ -396,11 +397,13 @@ export default function CreateIncidentScreen() {
   };
 
   const createClientId = () => {
-    return `incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Prevent weak random generation by using secure UUIDs
+    return `incident-${Date.now()}-${Crypto.randomUUID()}`;
   };
 
   const createMediaClientId = () => {
-    return `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Prevent weak random generation by using secure UUIDs
+    return `media-${Date.now()}-${Crypto.randomUUID()}`;
   };
 
   const addMaterialRow = () => {

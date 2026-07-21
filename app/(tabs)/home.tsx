@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, Modal, Platform, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { getIncidentMaterialsByLocalId, insertIncidentMaterials, type IncidentMaterialRow } from '../../db/incidentMaterials';
@@ -285,7 +285,7 @@ export default function Home() {
 
     return (
       <TouchableOpacity
-        style={{
+        style={[{
           marginHorizontal: SPACING.xl,
           marginBottom: SPACING.lg,
           backgroundColor: COLORS.surface,
@@ -296,7 +296,17 @@ export default function Home() {
           flexDirection: 'row',
           alignItems: 'flex-start',
           gap: SPACING.md,
-        }}
+        }, Platform.select({
+          ios: {
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.04,
+            shadowRadius: 6,
+          },
+          android: {
+            elevation: 2,
+          }
+        })]}
         activeOpacity={0.8}
         onPress={() => {
           void openIncidentDetails(item);

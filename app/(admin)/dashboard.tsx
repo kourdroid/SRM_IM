@@ -26,6 +26,8 @@ import {
   Modal,
 } from 'react-native';
 
+import { TYPOGRAPHY } from '@/src/core/constants/theme';
+
 // ─── Color Palette ───────────────────────────────────────────────
 const COLORS = {
   primaryDark: '#111827',
@@ -828,8 +830,7 @@ const styles = StyleSheet.create({
   },
 
   typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
+    ...TYPOGRAPHY.labelUppercase,
     color: COLORS.primaryDark,
   },
 
@@ -968,8 +969,7 @@ const styles = StyleSheet.create({
   },
 
   statusBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
+    ...TYPOGRAPHY.labelUppercase,
   },
 
   modalDate: {

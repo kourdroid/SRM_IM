@@ -314,7 +314,7 @@ export default function Home() {
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
             <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginRight: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.textPrimary, textTransform: 'uppercase' }}>{item.type}</Text>
+              <Text style={{ ...TYPOGRAPHY.labelUppercase, color: COLORS.textPrimary }}>{item.type}</Text>
             </View>
             <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }}>
               {item.village}
@@ -349,7 +349,7 @@ export default function Home() {
           borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
           flexShrink: 0,
         }}>
-          <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+          <Text style={{ ...TYPOGRAPHY.labelUppercase, color: isOpen ? COLORS.signalRed : COLORS.signalGreen }}>
             {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
           </Text>
         </View>
@@ -493,7 +493,7 @@ export default function Home() {
                     <>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#6B7280', fontWeight: '900', fontSize: 12, letterSpacing: 1.5, marginBottom: 8, textTransform: 'uppercase' }}>
+                    <Text style={{ ...TYPOGRAPHY.labelUppercase, color: '#6B7280', marginBottom: 8 }}>
                       {selectedIncident.type} • {selectedIncident.village}
                     </Text>
                     <Text style={{ color: '#111827', fontSize: 24, fontWeight: '900', letterSpacing: 0.5 }}>DÉTAILS INCIDENT</Text>
@@ -516,9 +516,7 @@ export default function Home() {
                     borderColor: selectedIncident.status !== 'closed' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(34, 197, 94, 0.2)',
                   }}>
                     <Text style={{
-                      fontWeight: '800',
-                      fontSize: 12,
-                      letterSpacing: 0.5,
+                      ...TYPOGRAPHY.labelUppercase,
                       color: selectedIncident.status !== 'closed' ? '#EA580C' : '#16A34A'
                     }}>
                       {selectedIncident.status !== 'closed' ? 'EN COURS' : 'CLÔTURÉ'}

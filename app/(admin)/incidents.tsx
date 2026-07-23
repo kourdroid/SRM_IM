@@ -26,6 +26,8 @@ import {
   View,
 } from 'react-native';
 
+import { TYPOGRAPHY } from '@/src/core/constants/theme';
+
 const COLORS = {
   primaryDark: '#111827',
   background: '#F3F4F6',
@@ -1102,8 +1104,7 @@ const styles = StyleSheet.create({
   },
 
   typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
+    ...TYPOGRAPHY.labelUppercase,
     color: COLORS.primaryDark,
   },
 
@@ -1187,8 +1188,7 @@ const styles = StyleSheet.create({
   },
 
   statusText: {
-    fontWeight: '800',
-    fontSize: 11,
+    ...TYPOGRAPHY.labelUppercase,
   },
 
   statusTextOpen: {

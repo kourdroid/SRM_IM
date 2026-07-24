@@ -6,7 +6,7 @@ import {
   type UserRole,
 } from '@/src/core/services/userAdminService';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -62,6 +62,24 @@ const ROLE_OPTIONS: {
   },
 ];
 
+// ⚡ Bolt: Hoisted pure helper function to prevent recreation on every render
+const getInitials = (name: string | null): string => {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0][0].toUpperCase();
+};
+
+// ⚡ Bolt: Hoisted pure helper function to prevent recreation on every render
+const getAvatarColor = (id: string): string => {
+  const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+};
+
 export default function UserManagement() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +128,8 @@ export default function UserManagement() {
     }
   };
 
-  const updateApproval = async (profile: UserProfile, approvalStatus: UserApprovalStatus) => {
+  // ⚡ Bolt: Memoized updateApproval to prevent recreation on every render
+  const updateApproval = useCallback(async (profile: UserProfile, approvalStatus: UserApprovalStatus) => {
     if (profile.approval_status === approvalStatus) return;
     setApprovalUpdatingId(profile.id);
     try {
@@ -133,9 +152,10 @@ export default function UserManagement() {
     } finally {
       setApprovalUpdatingId(null);
     }
-  };
+  }, []);
 
-  const handleDeleteUser = (profile: UserProfile) => {
+  // ⚡ Bolt: Memoized handleDeleteUser to prevent recreation on every render
+  const handleDeleteUser = useCallback((profile: UserProfile) => {
     Alert.alert(
       'Supprimer l\'utilisateur',
       `Êtes-vous sûr de vouloir supprimer définitivement le compte de ${profile.name || 'cet utilisateur'} ? Cette action est irréversible.`,
@@ -159,7 +179,7 @@ export default function UserManagement() {
         }
       ]
     );
-  };
+  }, []);
 
   const handleCreateUser = async () => {
     if (!newEmail.trim() || !newPassword.trim() || !newName.trim()) {
@@ -194,23 +214,8 @@ export default function UserManagement() {
     }
   };
 
-  const getInitials = (name: string | null): string => {
-    if (!name) return '?';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return parts[0][0].toUpperCase();
-  };
-
-  const getAvatarColor = (id: string): string => {
-    const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
-  };
-
-  const renderItem = ({ item }: { item: UserProfile }) => {
+  // ⚡ Bolt: Wrapped renderItem in useCallback to prevent re-rendering all list items when parent state changes
+  const renderItem = useCallback(({ item }: { item: UserProfile }) => {
     return (
       <View style={styles.card}>
         {/* Avatar */}
@@ -280,7 +285,7 @@ export default function UserManagement() {
         </TouchableOpacity>
       </View>
     );
-  };
+  }, [approvalUpdatingId, updateApproval, handleDeleteUser, setRolePickerProfile]);
 
   if (loading && profiles.length === 0) {
     return (

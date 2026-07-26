@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,11 @@ export default function DirectorIncidents() {
   const [type, setType] = useState<'all' | 'BT' | 'MT'>('all');
   const [selectedIncident, setSelectedIncident] = useState<DirectorIncident | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
+
+  // Prevent unnecessary re-renders in FlashList by memoizing the renderItem callback
+  const renderIncidentItem = useCallback(({ item }: { item: DirectorIncident }) => (
+    <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
+  ), [setSelectedIncident]);
 
   useEffect(() => {
     void loadInitial();
@@ -130,9 +135,7 @@ export default function DirectorIncidents() {
         <FlashList
           data={incidents}
           keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
-          )}
+          renderItem={renderIncidentItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.listContent}

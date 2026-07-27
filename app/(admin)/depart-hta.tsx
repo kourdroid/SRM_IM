@@ -14,7 +14,7 @@ import {
   type AdminDepartHtaOption,
 } from '@/src/core/services/referenceAdminService';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -73,12 +73,12 @@ export default function DepartHtaOptionsScreen() {
     setModalVisible(true);
   };
 
-  const openEditModal = (option: AdminDepartHtaOption) => {
+  const openEditModal = useCallback((option: AdminDepartHtaOption) => {
     setEditingOption(option);
     setName(option.name);
     setSortOrder(String(option.sort_order));
     setModalVisible(true);
-  };
+  }, []);
 
   const closeModal = () => {
     if (saving) return;
@@ -123,7 +123,7 @@ export default function DepartHtaOptionsScreen() {
     }
   };
 
-  const toggleActive = async (option: AdminDepartHtaOption) => {
+  const toggleActive = useCallback(async (option: AdminDepartHtaOption) => {
     try {
       setLoading(true);
       const saved = await DepartHtaAdminService.updateOption({
@@ -138,9 +138,10 @@ export default function DepartHtaOptionsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const renderOption = ({ item }: { item: AdminDepartHtaOption }) => {
+  // Prevent unnecessary re-renders in FlatList by memoizing the renderItem callback
+  const renderOption = useCallback(({ item }: { item: AdminDepartHtaOption }) => {
     return (
       <View style={styles.row}>
         <View style={styles.iconBox}>
@@ -161,7 +162,7 @@ export default function DepartHtaOptionsScreen() {
         />
       </View>
     );
-  };
+  }, [openEditModal, toggleActive]);
 
   if (loading && options.length === 0) {
     return (

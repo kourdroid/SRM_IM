@@ -74,6 +74,85 @@ interface Incident {
   synced: number;
 }
 
+// ⚡ Bolt: Extracted IncidentCard outside to allow React.memo to prevent unnecessary re-renders
+const IncidentCard = React.memo(({ item, onPress }: { item: Incident; onPress: (item: Incident) => void }) => {
+  const isOpen = item.status !== 'closed';
+  const hasMedia = parseMediaUrls(item.media_urls).length > 0;
+  const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
+
+  return (
+    <TouchableOpacity
+      style={{
+        marginHorizontal: SPACING.xl,
+        marginBottom: SPACING.lg,
+        backgroundColor: COLORS.surface,
+        borderRadius: RADIUS.md,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        padding: SPACING.xl,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: SPACING.md,
+      }}
+      activeOpacity={0.8}
+      onPress={() => onPress(item)}
+    >
+      {/* Status dot instead of border-left stripe */}
+      <View style={{
+        width: 8,
+        height: 8,
+        borderRadius: RADIUS.full,
+        backgroundColor: isOpen ? COLORS.signalOrange : COLORS.accent,
+        marginTop: 6,
+        flexShrink: 0,
+      }} />
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+          <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginRight: 8 }}>
+            <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.textPrimary, textTransform: 'uppercase' }}>{item.type}</Text>
+          </View>
+          <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            {item.village}
+          </Text>
+        </View>
+        <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+          {formatIncidentDate(item.date)}
+        </Text>
+        {item.incident_type ? (
+          <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4, fontWeight: '600' }} numberOfLines={1}>
+            {item.incident_type}
+          </Text>
+        ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          {hasMedia ? (
+            <Ionicons name="image-outline" size={14} color={COLORS.textSecondary} />
+          ) : null}
+          {item.latitude != null && item.longitude != null ? (
+            <Ionicons name="location-outline" size={14} color={COLORS.textSecondary} />
+          ) : null}
+          {syncStatus === 'failed' ? (
+            <Ionicons name="warning-outline" size={14} color={COLORS.signalRed} />
+          ) : null}
+        </View>
+      </View>
+      <View style={{
+        paddingHorizontal: SPACING.sm,
+        paddingVertical: SPACING.xs,
+        borderRadius: RADIUS.sm,
+        backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint,
+        borderWidth: 1,
+        borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+        flexShrink: 0,
+      }}>
+        <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+          {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+IncidentCard.displayName = 'IncidentCard';
+
 const INCIDENT_PAGE_SIZE = 30;
 const INCIDENT_LIST_COLUMNS = [
   'id',
@@ -279,82 +358,7 @@ export default function Home() {
 
   // ⚡ Bolt: Wrapped renderItem in useCallback to prevent re-rendering all list items when parent state changes
   const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
-    const isOpen = item.status !== 'closed';
-    const hasMedia = parseMediaUrls(item.media_urls).length > 0;
-    const syncStatus = item.sync_status || (item.synced === 1 ? 'synced' : 'pending');
-
-    return (
-      <TouchableOpacity
-        style={{
-          marginHorizontal: SPACING.xl,
-          marginBottom: SPACING.lg,
-          backgroundColor: COLORS.surface,
-          borderRadius: RADIUS.md,
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          padding: SPACING.xl,
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-          gap: SPACING.md,
-        }}
-        activeOpacity={0.8}
-        onPress={() => {
-          void openIncidentDetails(item);
-        }}
-      >
-        {/* Status dot instead of border-left stripe */}
-        <View style={{
-          width: 8,
-          height: 8,
-          borderRadius: RADIUS.full,
-          backgroundColor: isOpen ? COLORS.signalOrange : COLORS.accent,
-          marginTop: 6,
-          flexShrink: 0,
-        }} />
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-            <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginRight: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.textPrimary, textTransform: 'uppercase' }}>{item.type}</Text>
-            </View>
-            <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-              {item.village}
-            </Text>
-          </View>
-          <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase' }}>
-            {formatIncidentDate(item.date)}
-          </Text>
-          {item.incident_type ? (
-            <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4, fontWeight: '600' }} numberOfLines={1}>
-              {item.incident_type}
-            </Text>
-          ) : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
-            {hasMedia ? (
-              <Ionicons name="image-outline" size={14} color={COLORS.textSecondary} />
-            ) : null}
-            {item.latitude != null && item.longitude != null ? (
-              <Ionicons name="location-outline" size={14} color={COLORS.textSecondary} />
-            ) : null}
-            {syncStatus === 'failed' ? (
-              <Ionicons name="warning-outline" size={14} color={COLORS.signalRed} />
-            ) : null}
-          </View>
-        </View>
-        <View style={{
-          paddingHorizontal: SPACING.sm,
-          paddingVertical: SPACING.xs,
-          borderRadius: RADIUS.sm,
-          backgroundColor: isOpen ? COLORS.signalRedTint : COLORS.signalGreenTint,
-          borderWidth: 1,
-          borderColor: isOpen ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
-          flexShrink: 0,
-        }}>
-          <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-            {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
-          </Text>
-        </View>
-      </TouchableOpacity>
-    );
+    return <IncidentCard item={item} onPress={openIncidentDetails} />;
   }, [openIncidentDetails]);
 
   return (

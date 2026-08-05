@@ -6,7 +6,7 @@ import {
   type UserRole,
 } from '@/src/core/services/userAdminService';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -62,6 +62,107 @@ const ROLE_OPTIONS: {
   },
 ];
 
+const getInitials = (name: string | null): string => {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0][0].toUpperCase();
+};
+
+const getAvatarColor = (id: string): string => {
+  const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+};
+
+const UserItem = memo(({
+  item,
+  isApprovalUpdating,
+  setRolePickerProfile,
+  updateApproval,
+  handleDeleteUser
+}: {
+  item: UserProfile,
+  isApprovalUpdating: boolean,
+  setRolePickerProfile: (profile: UserProfile) => void,
+  updateApproval: (profile: UserProfile, status: UserApprovalStatus) => void,
+  handleDeleteUser: (profile: UserProfile) => void
+}) => {
+  return (
+    <View style={styles.card}>
+      {/* Avatar */}
+      <View style={[styles.avatar, { backgroundColor: getAvatarColor(item.id) }]}>
+        <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
+      </View>
+
+      {/* User Info */}
+      <View style={styles.userInfo}>
+        <Text style={styles.userName} numberOfLines={1}>
+          {item.name || 'Utilisateur Anonyme'}
+        </Text>
+        <Text style={styles.userEmail} numberOfLines={1}>
+          {item.email || 'Aucune adresse e-mail'}
+        </Text>
+      </View>
+
+      {/* Role and approval */}
+      <View style={styles.roleToggleSection}>
+        <SrmStatusBadge
+          label={getApprovalLabel(item.approval_status)}
+          variant={getApprovalVariant(item.approval_status)}
+        />
+        <SrmStatusBadge label={getRoleLabel(item.role)} variant={getRoleVariant(item.role)} />
+        <TouchableOpacity
+          style={styles.changeRoleButton}
+          onPress={() => setRolePickerProfile(item)}
+          activeOpacity={0.78}
+        >
+          <Ionicons name="swap-horizontal" size={14} color={COLORS.textSecondary} />
+          <Text style={styles.changeRoleText}>Changer</Text>
+        </TouchableOpacity>
+      </View>
+
+      {item.approval_status === 'pending' ? (
+        <View style={styles.approvalActions}>
+          <TouchableOpacity
+            style={styles.approveButton}
+            onPress={() => updateApproval(item, 'approved')}
+            disabled={isApprovalUpdating}
+            activeOpacity={0.78}
+          >
+            {isApprovalUpdating ? (
+              <ActivityIndicator size="small" color={COLORS.primaryDark} />
+            ) : (
+              <Ionicons name="checkmark" size={18} color={COLORS.primaryDark} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.rejectButton}
+            onPress={() => updateApproval(item, 'rejected')}
+            disabled={isApprovalUpdating}
+            activeOpacity={0.78}
+          >
+            <Ionicons name="close" size={18} color={COLORS.statRed} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {/* Delete action */}
+      <TouchableOpacity
+        style={styles.deleteButton}
+        onPress={() => handleDeleteUser(item)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="trash-outline" size={20} color={COLORS.statRed} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+UserItem.displayName = 'UserItem';
+
 export default function UserManagement() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +211,7 @@ export default function UserManagement() {
     }
   };
 
-  const updateApproval = async (profile: UserProfile, approvalStatus: UserApprovalStatus) => {
+  const updateApproval = useCallback(async (profile: UserProfile, approvalStatus: UserApprovalStatus) => {
     if (profile.approval_status === approvalStatus) return;
     setApprovalUpdatingId(profile.id);
     try {
@@ -133,9 +234,9 @@ export default function UserManagement() {
     } finally {
       setApprovalUpdatingId(null);
     }
-  };
+  }, [setProfiles, setApprovalUpdatingId]);
 
-  const handleDeleteUser = (profile: UserProfile) => {
+  const handleDeleteUser = useCallback((profile: UserProfile) => {
     Alert.alert(
       'Supprimer l\'utilisateur',
       `Êtes-vous sûr de vouloir supprimer définitivement le compte de ${profile.name || 'cet utilisateur'} ? Cette action est irréversible.`,
@@ -159,7 +260,7 @@ export default function UserManagement() {
         }
       ]
     );
-  };
+  }, [setLoading, setProfiles]);
 
   const handleCreateUser = async () => {
     if (!newEmail.trim() || !newPassword.trim() || !newName.trim()) {
@@ -194,93 +295,17 @@ export default function UserManagement() {
     }
   };
 
-  const getInitials = (name: string | null): string => {
-    if (!name) return '?';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return parts[0][0].toUpperCase();
-  };
-
-  const getAvatarColor = (id: string): string => {
-    const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
-  };
-
-  const renderItem = ({ item }: { item: UserProfile }) => {
+  const renderItem = useCallback(({ item }: { item: UserProfile }) => {
     return (
-      <View style={styles.card}>
-        {/* Avatar */}
-        <View style={[styles.avatar, { backgroundColor: getAvatarColor(item.id) }]}>
-          <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
-        </View>
-
-        {/* User Info */}
-        <View style={styles.userInfo}>
-          <Text style={styles.userName} numberOfLines={1}>
-            {item.name || 'Utilisateur Anonyme'}
-          </Text>
-          <Text style={styles.userEmail} numberOfLines={1}>
-            {item.email || 'Aucune adresse e-mail'}
-          </Text>
-        </View>
-
-        {/* Role and approval */}
-        <View style={styles.roleToggleSection}>
-          <SrmStatusBadge
-            label={getApprovalLabel(item.approval_status)}
-            variant={getApprovalVariant(item.approval_status)}
-          />
-          <SrmStatusBadge label={getRoleLabel(item.role)} variant={getRoleVariant(item.role)} />
-          <TouchableOpacity
-            style={styles.changeRoleButton}
-            onPress={() => setRolePickerProfile(item)}
-            activeOpacity={0.78}
-          >
-            <Ionicons name="swap-horizontal" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.changeRoleText}>Changer</Text>
-          </TouchableOpacity>
-        </View>
-
-        {item.approval_status === 'pending' ? (
-          <View style={styles.approvalActions}>
-            <TouchableOpacity
-              style={styles.approveButton}
-              onPress={() => updateApproval(item, 'approved')}
-              disabled={approvalUpdatingId === item.id}
-              activeOpacity={0.78}
-            >
-              {approvalUpdatingId === item.id ? (
-                <ActivityIndicator size="small" color={COLORS.primaryDark} />
-              ) : (
-                <Ionicons name="checkmark" size={18} color={COLORS.primaryDark} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.rejectButton}
-              onPress={() => updateApproval(item, 'rejected')}
-              disabled={approvalUpdatingId === item.id}
-              activeOpacity={0.78}
-            >
-              <Ionicons name="close" size={18} color={COLORS.statRed} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        {/* Delete action */}
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDeleteUser(item)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="trash-outline" size={20} color={COLORS.statRed} />
-        </TouchableOpacity>
-      </View>
+      <UserItem
+        item={item}
+        isApprovalUpdating={approvalUpdatingId === item.id}
+        setRolePickerProfile={setRolePickerProfile}
+        updateApproval={updateApproval}
+        handleDeleteUser={handleDeleteUser}
+      />
     );
-  };
+  }, [approvalUpdatingId, setRolePickerProfile, updateApproval, handleDeleteUser]);
 
   if (loading && profiles.length === 0) {
     return (

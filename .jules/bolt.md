@@ -4,3 +4,6 @@
 ## 2025-02-28 - Stale closures in memoized list render items
 **Learning:** When memoizing `renderItem` using `useCallback` for `FlatList` or `FlashList` in React Native, the dependency array must strictly include all state variables and helper functions referenced within the callback. Failing to do so causes a stale closure bug where the list item always renders with the initial state values, even after asynchronous updates to state variables.
 **Action:** When adding `useCallback` to a render function, thoroughly inspect the entire function body to identify all external dependencies (state variables, props, or other functions that use them) and explicitly include them in the dependency array to ensure the callback has access to the most recent data.
+## 2025-05-18 - Boolean props for React.memo lists
+**Learning:** When extracting a list item into a `React.memo` component to prevent re-renders from a changing global ID state (e.g., `approvalUpdatingId`), do not pass the raw ID string as a prop. Because this ID changes for all items, `React.memo` will fail its shallow equality check across the board, causing every item to re-render.
+**Action:** Pass a derived boolean prop (e.g., `isUpdating={approvalUpdatingId === item.id}`) instead of the raw ID string to ensure only the affected list item re-renders.

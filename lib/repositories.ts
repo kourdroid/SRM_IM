@@ -7,6 +7,7 @@
 
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { IIncidentRepository, IncidentEntity } from './domain';
+import * as Crypto from 'expo-crypto';
 import type { CreateIncidentInput, IncidentFromServer, IncidentStatus } from './schemas';
 
 interface IncidentRow {
@@ -91,7 +92,7 @@ export class SQLiteIncidentRepository implements IIncidentRepository {
     }
 
     async create(input: CreateIncidentInput, createdBy: string): Promise<number> {
-        const clientId = `incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const clientId = `incident-${Date.now()}-${Crypto.randomUUID().slice(0, 8)}`;
         const result = await this.db.runAsync(
             `INSERT INTO incidents (
         client_id, type, date, village, incident_type, depart_hta, commune_id, equipment_used,

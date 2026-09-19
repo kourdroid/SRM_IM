@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -90,6 +90,14 @@ export default function DirectorIncidents() {
     void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
   };
 
+  const handlePressIncident = useCallback((incident: DirectorIncident) => {
+    setSelectedIncident(incident);
+  }, []);
+
+  const renderItem = useCallback(({ item }: { item: DirectorIncident }) => (
+    <IncidentCard incident={item} onPress={handlePressIncident} />
+  ), [handlePressIncident]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
@@ -130,9 +138,7 @@ export default function DirectorIncidents() {
         <FlashList
           data={incidents}
           keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
-          )}
+          renderItem={renderItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.listContent}
@@ -181,10 +187,11 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   );
 }
 
-function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPress: () => void }) {
+// ⚡ Bolt: Memoized IncidentCard to prevent unnecessary re-renders when parent state changes
+const IncidentCard = React.memo(({ incident, onPress }: { incident: DirectorIncident; onPress: (incident: DirectorIncident) => void }) => {
   const isOpen = incident.status === 'open';
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity style={styles.card} onPress={() => onPress(incident)} activeOpacity={0.75}>
       <View style={[styles.cardDot, { backgroundColor: isOpen ? COLORS.signalRed : COLORS.signalGreen }]} />
       <View style={{ flex: 1 }}>
         <View style={styles.cardTopRow}>
@@ -208,7 +215,8 @@ function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPre
       <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
     </TouchableOpacity>
   );
-}
+});
+IncidentCard.displayName = 'IncidentCard';
 
 function IncidentDetailModal({
   incident,

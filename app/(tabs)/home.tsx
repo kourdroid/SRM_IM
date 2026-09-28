@@ -3,8 +3,9 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { FlashList } from '@shopify/flash-list';
 import { useAuth } from '../../contexts/AuthContext';
 import { getIncidentMaterialsByLocalId, insertIncidentMaterials, type IncidentMaterialRow } from '../../db/incidentMaterials';
 import { enqueueStatusUpdate, enqueueSyncMaterials } from '../../db/syncOperations';
@@ -407,16 +408,14 @@ export default function Home() {
         {isLoading ? (
           <SrmListSkeleton count={6} />
         ) : (
-          <FlatList
+          // ⚡ Bolt: Replaced FlatList with FlashList for improved list rendering performance
+          <FlashList
             data={incidents}
             renderItem={renderIncidentItem}
             keyExtractor={item => String(item.id)}
             contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
-            initialNumToRender={8}
-            maxToRenderPerBatch={8}
-            windowSize={7}
-            removeClippedSubviews
+            {...{ estimatedItemSize: 120 }}
             onEndReached={handleEndReached}
             onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (

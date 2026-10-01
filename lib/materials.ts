@@ -4,6 +4,8 @@ export interface IncidentMaterialInput {
   quantity: number;
 }
 
+import * as Crypto from 'expo-crypto';
+
 export interface MaterialFormRow {
   id: string;
   materialName: string;
@@ -11,7 +13,8 @@ export interface MaterialFormRow {
 }
 
 export function createMaterialClientId(): string {
-  return `material-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  // 🛡️ Sentinel: Replace Math.random with Crypto.randomUUID for cryptographically secure ID generation
+  return `material-${Date.now()}-${Crypto.randomUUID().slice(0, 8)}`;
 }
 
 export function createEmptyMaterialFormRow(): MaterialFormRow {

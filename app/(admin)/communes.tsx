@@ -14,7 +14,7 @@ import {
   CommuneAdminService,
 } from '@/src/core/services/communeAdminService';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -71,11 +71,11 @@ export default function CommuneManagement() {
     setModalVisible(true);
   };
 
-  const openEditModal = (commune: AdminCommune) => {
+  const openEditModal = useCallback((commune: AdminCommune) => {
     setEditingCommune(commune);
     setCommuneName(commune.name);
     setModalVisible(true);
-  };
+  }, []);
 
   const closeModal = () => {
     if (saving) return;
@@ -113,7 +113,7 @@ export default function CommuneManagement() {
     }
   };
 
-  const handleDelete = (commune: AdminCommune) => {
+  const handleDelete = useCallback((commune: AdminCommune) => {
     if (commune.incident_count > 0) {
       Alert.alert(
         'Suppression bloquée',
@@ -144,37 +144,17 @@ export default function CommuneManagement() {
         },
       ]
     );
-  };
+  }, []);
 
-  const renderCommune = ({ item }: { item: AdminCommune }) => {
-    const isUsed = item.incident_count > 0;
-
+  const renderCommune = useCallback(({ item }: { item: AdminCommune }) => {
     return (
-      <View style={styles.communeRow}>
-        <View style={styles.communeIcon}>
-          <Ionicons name="location-outline" size={20} color={COLORS.textPrimary} />
-        </View>
-
-        <View style={styles.communeBody}>
-          <Text style={styles.communeName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.communeMeta}>
-            {item.incident_count} incident{item.incident_count > 1 ? 's' : ''} lié{item.incident_count > 1 ? 's' : ''}
-          </Text>
-        </View>
-
-        <SrmStatusBadge label={isUsed ? 'UTILISÉE' : 'LIBRE'} variant={isUsed ? 'success' : 'neutral'} />
-
-        <SrmIconButton icon="create-outline" onPress={() => openEditModal(item)} />
-
-        <SrmIconButton
-          icon="trash-outline"
-          color={isUsed ? COLORS.textMuted : COLORS.signalRed}
-          onPress={() => handleDelete(item)}
-          disabled={isUsed}
-        />
-      </View>
+      <CommuneItem
+        item={item}
+        onOpenEditModal={openEditModal}
+        onHandleDelete={handleDelete}
+      />
     );
-  };
+  }, [openEditModal, handleDelete]);
 
   if (loading && communes.length === 0) {
     return (
@@ -305,6 +285,46 @@ export default function CommuneManagement() {
     </View>
   );
 }
+
+const CommuneItem = React.memo(({
+  item,
+  onOpenEditModal,
+  onHandleDelete,
+}: {
+  item: AdminCommune;
+  onOpenEditModal: (item: AdminCommune) => void;
+  onHandleDelete: (item: AdminCommune) => void;
+}) => {
+  // Prevent unnecessary re-renders in FlashList/FlatList by extracting to React.memo
+  const isUsed = item.incident_count > 0;
+
+  return (
+    <View style={styles.communeRow}>
+      <View style={styles.communeIcon}>
+        <Ionicons name="location-outline" size={20} color={COLORS.textPrimary} />
+      </View>
+
+      <View style={styles.communeBody}>
+        <Text style={styles.communeName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.communeMeta}>
+          {item.incident_count} incident{item.incident_count > 1 ? 's' : ''} lié{item.incident_count > 1 ? 's' : ''}
+        </Text>
+      </View>
+
+      <SrmStatusBadge label={isUsed ? 'UTILISÉE' : 'LIBRE'} variant={isUsed ? 'success' : 'neutral'} />
+
+      <SrmIconButton icon="create-outline" onPress={() => onOpenEditModal(item)} />
+
+      <SrmIconButton
+        icon="trash-outline"
+        color={isUsed ? COLORS.textMuted : COLORS.signalRed}
+        onPress={() => onHandleDelete(item)}
+        disabled={isUsed}
+      />
+    </View>
+  );
+});
+CommuneItem.displayName = 'CommuneItem';
 
 const styles = StyleSheet.create({
   screen: {

@@ -16,7 +16,7 @@ import {
 } from '@/src/core/services/referenceAdminService';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -80,13 +80,13 @@ export default function IncidentTypeOptionsScreen() {
     setModalVisible(true);
   };
 
-  const openEditModal = (option: AdminIncidentTypeOption) => {
+  const openEditModal = useCallback((option: AdminIncidentTypeOption) => {
     setEditingOption(option);
     setNetworkType(option.network_type);
     setName(option.name);
     setSortOrder(String(option.sort_order));
     setModalVisible(true);
-  };
+  }, []);
 
   const closeModal = () => {
     if (saving) return;
@@ -132,7 +132,7 @@ export default function IncidentTypeOptionsScreen() {
     }
   };
 
-  const toggleActive = async (option: AdminIncidentTypeOption) => {
+  const toggleActive = useCallback(async (option: AdminIncidentTypeOption) => {
     try {
       setLoading(true);
       const saved = await IncidentTypeAdminService.updateOption({
@@ -148,9 +148,9 @@ export default function IncidentTypeOptionsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleDelete = (option: AdminIncidentTypeOption) => {
+  const handleDelete = useCallback((option: AdminIncidentTypeOption) => {
     if (option.incident_count > 0) {
       Alert.alert(
         'Suppression bloquée',
@@ -181,39 +181,18 @@ export default function IncidentTypeOptionsScreen() {
         },
       ]
     );
-  };
+  }, []);
 
-  const renderOption = ({ item }: { item: AdminIncidentTypeOption }) => {
-    const used = item.incident_count > 0;
+  const renderOption = useCallback(({ item }: { item: AdminIncidentTypeOption }) => {
     return (
-      <View style={styles.row}>
-        <View style={[styles.networkBadge, { backgroundColor: item.network_type === 'BT' ? '#EFF6FF' : '#FFF7ED' }]}>
-          <Text style={[styles.networkText, { color: item.network_type === 'BT' ? '#2563EB' : '#EA580C' }]}>
-            {item.network_type}
-          </Text>
-        </View>
-        <View style={styles.rowBody}>
-          <Text style={styles.rowTitle} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.rowMeta}>
-            Ordre {item.sort_order} · {item.incident_count} incident{item.incident_count > 1 ? 's' : ''}
-          </Text>
-        </View>
-        <SrmStatusBadge label={item.active ? 'ACTIF' : 'INACTIF'} variant={item.active ? 'success' : 'neutral'} />
-        <SrmIconButton icon="create-outline" onPress={() => openEditModal(item)} />
-        <SrmIconButton
-          icon={item.active ? 'pause-outline' : 'play-outline'}
-          color={item.active ? COLORS.signalOrange : COLORS.signalGreen}
-          onPress={() => toggleActive(item)}
-        />
-        <SrmIconButton
-          icon="trash-outline"
-          color={used ? COLORS.textMuted : COLORS.signalRed}
-          onPress={() => handleDelete(item)}
-          disabled={used}
-        />
-      </View>
+      <IncidentTypeItem
+        item={item}
+        onOpenEditModal={openEditModal}
+        onToggleActive={toggleActive}
+        onHandleDelete={handleDelete}
+      />
     );
-  };
+  }, [openEditModal, toggleActive, handleDelete]);
 
   if (loading && options.length === 0) {
     return (
@@ -340,6 +319,50 @@ export default function IncidentTypeOptionsScreen() {
     </View>
   );
 }
+
+const IncidentTypeItem = React.memo(({
+  item,
+  onOpenEditModal,
+  onToggleActive,
+  onHandleDelete,
+}: {
+  item: AdminIncidentTypeOption;
+  onOpenEditModal: (item: AdminIncidentTypeOption) => void;
+  onToggleActive: (item: AdminIncidentTypeOption) => void;
+  onHandleDelete: (item: AdminIncidentTypeOption) => void;
+}) => {
+  // Prevent unnecessary re-renders in FlashList/FlatList by extracting to React.memo
+  const used = item.incident_count > 0;
+  return (
+    <View style={styles.row}>
+      <View style={[styles.networkBadge, { backgroundColor: item.network_type === 'BT' ? '#EFF6FF' : '#FFF7ED' }]}>
+        <Text style={[styles.networkText, { color: item.network_type === 'BT' ? '#2563EB' : '#EA580C' }]}>
+          {item.network_type}
+        </Text>
+      </View>
+      <View style={styles.rowBody}>
+        <Text style={styles.rowTitle} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.rowMeta}>
+          Ordre {item.sort_order} · {item.incident_count} incident{item.incident_count > 1 ? 's' : ''}
+        </Text>
+      </View>
+      <SrmStatusBadge label={item.active ? 'ACTIF' : 'INACTIF'} variant={item.active ? 'success' : 'neutral'} />
+      <SrmIconButton icon="create-outline" onPress={() => onOpenEditModal(item)} />
+      <SrmIconButton
+        icon={item.active ? 'pause-outline' : 'play-outline'}
+        color={item.active ? COLORS.signalOrange : COLORS.signalGreen}
+        onPress={() => onToggleActive(item)}
+      />
+      <SrmIconButton
+        icon="trash-outline"
+        color={used ? COLORS.textMuted : COLORS.signalRed}
+        onPress={() => onHandleDelete(item)}
+        disabled={used}
+      />
+    </View>
+  );
+});
+IncidentTypeItem.displayName = 'IncidentTypeItem';
 
 function sortOptions(options: AdminIncidentTypeOption[]): AdminIncidentTypeOption[] {
   return [...options].sort((a, b) =>

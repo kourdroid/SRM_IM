@@ -11,6 +11,7 @@ import {
   Linking,
   ScrollView,
   StyleSheet,
+  Platform,
   Text,
   TextInput,
   TouchableOpacity,
@@ -376,6 +377,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: SPACING.md,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   kpiIcon: {
     width: 32,

@@ -34,8 +34,9 @@ export default function Signup() {
       Alert.alert('Champs requis', 'Veuillez saisir votre adresse e-mail.');
       return;
     }
-    if (password.length < 6) {
-      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caractères.');
+    // 🛡️ Sentinel: Enforce strong password requirements to prevent brute-force and dictionary attacks
+    if (password.length < 8 || !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      Alert.alert('Mot de passe faible', 'Le mot de passe doit contenir au moins 8 caractères, dont une majuscule, une minuscule et un chiffre.');
       return;
     }
 

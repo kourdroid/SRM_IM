@@ -4,3 +4,6 @@
 ## 2025-02-28 - Stale closures in memoized list render items
 **Learning:** When memoizing `renderItem` using `useCallback` for `FlatList` or `FlashList` in React Native, the dependency array must strictly include all state variables and helper functions referenced within the callback. Failing to do so causes a stale closure bug where the list item always renders with the initial state values, even after asynchronous updates to state variables.
 **Action:** When adding `useCallback` to a render function, thoroughly inspect the entire function body to identify all external dependencies (state variables, props, or other functions that use them) and explicitly include them in the dependency array to ensure the callback has access to the most recent data.
+## 2024-05-24 - FlashList estimatedItemSize in v2+ projects
+**Learning:** In Shopify's FlashList v2+, `estimatedItemSize` is handled automatically and the property has been removed from the TypeScript definitions. Passing `estimatedItemSize` to `FlashList` in a v2+ project will cause a TypeScript compilation error (`Property 'estimatedItemSize' does not exist`).
+**Action:** Always verify the installed version of `@shopify/flash-list` before attempting to use `estimatedItemSize`. For v2+ projects, omit the `estimatedItemSize` prop entirely. Only use it for legacy projects running v1.

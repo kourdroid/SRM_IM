@@ -29,13 +29,15 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const authorization = request.headers.get('Authorization');
-  if (!supabaseUrl || !serviceRoleKey || !authorization) {
+  if (!supabaseUrl || !serviceRoleKey || !anonKey || !authorization) {
     return json({ error: 'Server configuration or authorization missing' }, 401);
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey);
-  const userScoped = createClient(supabaseUrl, serviceRoleKey, {
+  // 🛡️ Sentinel: Use anonKey instead of serviceRoleKey to ensure RLS policies are enforced for the user
+  const userScoped = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authorization } },
   });
   const token = authorization.replace(/^Bearer\s+/i, '');

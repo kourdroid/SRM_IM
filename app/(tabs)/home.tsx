@@ -3,7 +3,8 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { getIncidentMaterialsByLocalId, insertIncidentMaterials, type IncidentMaterialRow } from '../../db/incidentMaterials';
@@ -407,18 +408,16 @@ export default function Home() {
         {isLoading ? (
           <SrmListSkeleton count={6} />
         ) : (
-          <FlatList
-            data={incidents}
-            renderItem={renderIncidentItem}
-            keyExtractor={item => String(item.id)}
-            contentContainerStyle={{ paddingBottom: 100 }}
-            showsVerticalScrollIndicator={false}
-            initialNumToRender={8}
-            maxToRenderPerBatch={8}
-            windowSize={7}
-            removeClippedSubviews
-            onEndReached={handleEndReached}
-            onEndReachedThreshold={0.4}
+          <View style={{ flex: 1 }}>
+            {/* ⚡ Bolt: Replaced FlatList with FlashList for significantly better list rendering performance */}
+            <FlashList
+              data={incidents}
+              renderItem={renderIncidentItem}
+              keyExtractor={item => String(item.id)}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              showsVerticalScrollIndicator={false}
+              onEndReached={handleEndReached}
+              onEndReachedThreshold={0.4}
             ListFooterComponent={isLoadingMore ? (
               <ActivityIndicator style={{ paddingVertical: SPACING.lg }} color={COLORS.accent} />
             ) : null}
@@ -459,7 +458,8 @@ export default function Home() {
                 </Text>
               </View>
             }
-          />
+            />
+          </View>
         )}
       </View>
 

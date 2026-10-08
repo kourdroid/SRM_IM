@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,11 @@ export default function DirectorIncidents() {
   const [type, setType] = useState<'all' | 'BT' | 'MT'>('all');
   const [selectedIncident, setSelectedIncident] = useState<DirectorIncident | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
+
+  // ⚡ Bolt: Prevent unnecessary re-renders in FlashList by memoizing the renderItem callback
+  const renderItem = useCallback(({ item }: { item: DirectorIncident }) => (
+    <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
+  ), []);
 
   useEffect(() => {
     void loadInitial();
@@ -130,9 +135,7 @@ export default function DirectorIncidents() {
         <FlashList
           data={incidents}
           keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
-          )}
+          renderItem={renderItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.listContent}
@@ -181,7 +184,7 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   );
 }
 
-function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPress: () => void }) {
+const IncidentCard = memo(({ incident, onPress }: { incident: DirectorIncident; onPress: () => void }) => {
   const isOpen = incident.status === 'open';
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
@@ -208,7 +211,8 @@ function IncidentCard({ incident, onPress }: { incident: DirectorIncident; onPre
       <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
     </TouchableOpacity>
   );
-}
+});
+IncidentCard.displayName = 'IncidentCard';
 
 function IncidentDetailModal({
   incident,

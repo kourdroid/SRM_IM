@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -43,6 +43,11 @@ export default function DirectorIncidents() {
     return () => clearTimeout(debounce);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
+
+  // ⚡ Bolt: Prevent unnecessary re-renders in FlashList by memoizing the renderItem callback
+  const renderItem = useCallback(({ item }: { item: DirectorIncident }) => (
+    <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
+  ), []);
 
   const buildFilters = (lastCreatedAt?: string): DirectorIncidentFilters => ({
     status,
@@ -130,9 +135,7 @@ export default function DirectorIncidents() {
         <FlashList
           data={incidents}
           keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <IncidentCard incident={item} onPress={() => setSelectedIncident(item)} />
-          )}
+          renderItem={renderItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.listContent}

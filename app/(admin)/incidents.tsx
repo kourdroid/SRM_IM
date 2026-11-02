@@ -1,5 +1,7 @@
+import MaterialUsageSelector, { type MaterialUsageChoice } from '@/components/MaterialUsageSelector';
 import { SrmListSkeleton } from '@/components/ui/srm';
 import {
+  NO_MATERIAL_USED_LABEL,
   buildEquipmentSummary,
   createEmptyMaterialFormRow,
   normalizeMaterialRows,
@@ -7,6 +9,9 @@ import {
 } from '@/lib/materials';
 import { supabase } from '@/lib/supabase';
 import { IncidentAdminService, type Incident, type IncidentFilters } from '@/src/core/services/incidentAdminService';
+import { acknowledgeAdminNotification } from '@/src/core/services/adminNotificationService';
+import { router, useLocalSearchParams } from 'expo-router';
+import { z } from 'zod';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
@@ -16,6 +21,7 @@ import {
   Alert,
   FlatList,
   Linking,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -43,6 +49,7 @@ const COLORS = {
 } as const;
 
 export default function ManageIncidents() {
+  const { incidentId, notificationId } = useLocalSearchParams<{ incidentId?: string; notificationId?: string }>();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -66,8 +73,10 @@ export default function ManageIncidents() {
   const [showCommuneModal, setShowCommuneModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [isArchivingIncident, setIsArchivingIncident] = useState(false);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
+  const [materialUsage, setMaterialUsage] = useState<MaterialUsageChoice>(null);
   const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [isClosingIncident, setIsClosingIncident] = useState(false);
 
@@ -169,7 +178,7 @@ export default function ManageIncidents() {
     try {
       const last = incidents[incidents.length - 1];
       const activeFilters = buildFilters();
-      const data = await IncidentAdminService.getIncidents(15, last.created_at, activeFilters);
+      const data = await IncidentAdminService.getIncidents(15, { createdAt: last.created_at, id: last.id }, activeFilters);
       if (data.length > 0) {
         setIncidents(prev => [...prev, ...data]);
       }
@@ -181,18 +190,24 @@ export default function ManageIncidents() {
   };
 
   const handleToggleStatus = async (item: Incident) => {
+    if (isClosingIncident) return;
     const newStatus = item.status === 'open' ? 'closed' : 'open';
     const existingMaterials = item.materials || [];
-    const normalizedMaterials = normalizeMaterialRows(closureMaterialRows);
+    const noMaterialUsed = item.status === 'open' && existingMaterials.length === 0 && materialUsage === 'none';
+    const normalizedMaterials = noMaterialUsed ? [] : normalizeMaterialRows(closureMaterialRows);
     if (item.status === 'open' && existingMaterials.length === 0 && !showClosureMaterials) {
       setShowClosureMaterials(true);
+      return;
+    }
+    if (item.status === 'open' && existingMaterials.length === 0 && materialUsage === null) {
+      Alert.alert('Matériel utilisé', 'Choisissez avec matériel ou aucun matériel utilisé.');
       return;
     }
     if (item.status === 'open' && normalizedMaterials === null) {
       Alert.alert('Matériel invalide', 'Chaque ligne de matériel doit avoir un nom et une quantité positive.');
       return;
     }
-    if (item.status === 'open' && existingMaterials.length === 0 && (normalizedMaterials?.length ?? 0) === 0) {
+    if (item.status === 'open' && existingMaterials.length === 0 && !noMaterialUsed && (normalizedMaterials?.length ?? 0) === 0) {
       Alert.alert('Matériel requis', "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
       return;
     }
@@ -206,14 +221,16 @@ export default function ManageIncidents() {
           quantity: material.quantity,
         }))
         : existingMaterials;
-      const nextEquipmentUsed = closureMaterials.length > 0
-        ? buildEquipmentSummary(closureMaterials)
-        : item.equipment_used;
+      let nextEquipmentUsed = item.equipment_used;
+      if (noMaterialUsed) nextEquipmentUsed = NO_MATERIAL_USED_LABEL;
+      else if (closureMaterials.length > 0) nextEquipmentUsed = buildEquipmentSummary(closureMaterials);
+      else if (item.status === 'closed' && item.no_material_used) nextEquipmentUsed = '';
 
-      if (item.status === 'open' && closureMaterials.length > 0) {
+      if (item.status === 'open' && (closureMaterials.length > 0 || noMaterialUsed)) {
         await IncidentAdminService.closeIncidentWithMaterials({
           id: item.id,
           materials: closureMaterials,
+          no_material_used: noMaterialUsed,
         });
       } else {
         await IncidentAdminService.updateIncidentStatus({ id: item.id, status: newStatus });
@@ -222,6 +239,7 @@ export default function ManageIncidents() {
       setIncidents(prev => prev.map(i => i.id === item.id ? {
         ...i,
         status: newStatus,
+        no_material_used: noMaterialUsed,
         materials: nextMaterials,
         equipment_used: nextEquipmentUsed,
         materials_summary: nextEquipmentUsed,
@@ -230,12 +248,14 @@ export default function ManageIncidents() {
         setSelectedIncident(prev => prev ? {
           ...prev,
           status: newStatus,
+          no_material_used: noMaterialUsed,
           materials: nextMaterials,
           equipment_used: nextEquipmentUsed,
           materials_summary: nextEquipmentUsed,
         } : null);
       }
       setShowClosureMaterials(false);
+      setMaterialUsage(null);
       setClosureMaterialRows([createEmptyMaterialFormRow()]);
       Alert.alert('Succès', `Incident ${newStatus === 'closed' ? 'clôturé' : 'rouvert'}.`);
     } catch (e: unknown) {
@@ -248,6 +268,37 @@ export default function ManageIncidents() {
     } finally {
       setIsClosingIncident(false);
     }
+  };
+
+  const handleArchiveIncident = (item: Incident) => {
+    Alert.alert(
+      "Supprimer l'incident",
+      "L'incident sera retiré des listes, des statistiques et des rapports. Son historique reste conservé.",
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsArchivingIncident(true);
+              await IncidentAdminService.archiveIncident(item.id);
+              setIncidents(prev => prev.filter(i => i.id !== item.id));
+              setSelectedIncident(null);
+            } catch (e: unknown) {
+              const message = e instanceof Error ? e.message : String(e);
+              if (message.includes('NETWORK_OFFLINE')) {
+                Alert.alert('Action Hors Ligne Bloquée', 'Les mutations administrateur requièrent une connexion internet active.');
+              } else {
+                Alert.alert('Erreur', message);
+              }
+            } finally {
+              setIsArchivingIncident(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const openIncidentMap = (incident: Incident) => {
@@ -289,8 +340,31 @@ export default function ManageIncidents() {
   const openIncidentDetails = useCallback((incident: Incident) => {
     setSelectedIncident(incident);
     setShowClosureMaterials(false);
+    setMaterialUsage(null);
     setClosureMaterialRows([createEmptyMaterialFormRow()]);
   }, []);
+
+  useEffect(() => {
+    if (!incidentId) return;
+    let active = true;
+    const openNotificationIncident = async () => {
+      try {
+        const id = z.uuid().parse(incidentId);
+        const results = await IncidentAdminService.getIncidents(1, undefined, { incidentId: id });
+        if (!active) return;
+        if (!results[0]) throw new Error('Cet incident est indisponible ou votre accès a changé.');
+        openIncidentDetails(results[0]);
+        // Opening the incident is the read signal: it clears the unread count and cancels the reminder push.
+        if (notificationId) void acknowledgeAdminNotification(z.uuid().parse(notificationId)).catch(() => undefined);
+      } catch {
+        if (active) Alert.alert('Notification', 'Impossible d’ouvrir cette notification. Vérifiez votre connexion et réessayez depuis la liste des notifications.');
+      } finally {
+        if (active) router.setParams({ incidentId: '', notificationId: '' });
+      }
+    };
+    void openNotificationIncident();
+    return () => { active = false; };
+  }, [incidentId, notificationId, openIncidentDetails]);
 
   const addClosureMaterialRow = () => {
     setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
@@ -646,7 +720,7 @@ export default function ManageIncidents() {
         transparent={true}
         onRequestClose={() => setSelectedIncident(null)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.detailModalContainer}>
             {selectedIncident && (
               <>
@@ -669,7 +743,7 @@ export default function ManageIncidents() {
                 </View>
 
                 {/* Modal Scroll Content */}
-                <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
                   {/* Status Badge */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <View style={[
@@ -759,7 +833,7 @@ export default function ManageIncidents() {
 
                   {/* Equipment */}
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Matériel requis/utilisé</Text>
+                    <Text style={styles.detailLabel}>Matériel utilisé</Text>
                     {selectedIncident.materials && selectedIncident.materials.length > 0 ? (
                       <View style={styles.materialList}>
                         {selectedIncident.materials.map((material) => (
@@ -770,7 +844,7 @@ export default function ManageIncidents() {
                         ))}
                       </View>
                     ) : (
-                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Aucun'}</Text>
+                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Non renseigné'}</Text>
                     )}
                   </View>
 
@@ -814,15 +888,15 @@ export default function ManageIncidents() {
                       </ScrollView>
                     </View>
                   )}
-                </ScrollView>
 
                 {selectedIncident.status === 'open' && showClosureMaterials && (!selectedIncident.materials || selectedIncident.materials.length === 0) ? (
                   <View style={styles.closureMaterialBlock}>
-                    <Text style={styles.closureMaterialTitle}>MATÉRIEL OBLIGATOIRE</Text>
+                    <Text style={styles.closureMaterialTitle}>MATÉRIEL UTILISÉ</Text>
                     <Text style={styles.closureMaterialHelp}>
-                      Renseignez le matériel utilisé avant de clôturer cet incident.
+                      Déclarez le matériel utilisé ou confirmez qu’aucun matériel n’a été utilisé.
                     </Text>
-                    <View style={styles.closureMaterialRows}>
+                    <MaterialUsageSelector value={materialUsage} onChange={setMaterialUsage} disabled={isClosingIncident} />
+                    {materialUsage === 'used' && <View style={styles.closureMaterialRows}>
                       {closureMaterialRows.map((row, index) => (
                         <View key={row.id} style={styles.closureMaterialRow}>
                           <TextInput
@@ -861,9 +935,11 @@ export default function ManageIncidents() {
                         <Ionicons name="add" size={18} color={COLORS.textPrimary} />
                         <Text style={styles.closureMaterialAddText}>Ajouter un matériel</Text>
                       </TouchableOpacity>
-                    </View>
+                    </View>}
                   </View>
                 ) : null}
+
+                </ScrollView>
 
                 {/* Modal Footer Actions */}
                 <View style={styles.modalFooter}>
@@ -873,7 +949,7 @@ export default function ManageIncidents() {
                       { backgroundColor: selectedIncident.status === 'open' ? COLORS.statGreen : COLORS.statRed }
                     ]}
                     onPress={() => handleToggleStatus(selectedIncident)}
-                    disabled={isClosingIncident}
+                    disabled={isClosingIncident || isArchivingIncident}
                   >
                     <Ionicons
                       name={selectedIncident.status === 'open' ? "checkmark-circle-outline" : "alert-circle-outline"}
@@ -884,11 +960,23 @@ export default function ManageIncidents() {
                       {selectedIncident.status === 'open' ? 'Clôturer l\'incident' : 'Rouvrir l\'incident'}
                     </Text>
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.archiveBtn}
+                    onPress={() => handleArchiveIncident(selectedIncident)}
+                    disabled={isClosingIncident || isArchivingIncident}
+                    accessibilityRole="button"
+                    accessibilityLabel="Supprimer l'incident"
+                  >
+                    {isArchivingIncident
+                      ? <ActivityIndicator size="small" color={COLORS.statRed} />
+                      : <Ionicons name="trash-outline" size={18} color={COLORS.statRed} />}
+                    <Text style={styles.archiveBtnText}>Supprimer l&apos;incident</Text>
+                  </TouchableOpacity>
                 </View>
               </>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1310,6 +1398,7 @@ const styles = StyleSheet.create({
   },
 
   modalScroll: {
+    flexShrink: 1,
     padding: 20,
   },
 
@@ -1380,14 +1469,14 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#F59E0B',
-    backgroundColor: '#FFFBEB',
+    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.cardBg,
   },
 
   closureMaterialTitle: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#92400E',
+    color: COLORS.textPrimary,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
     marginBottom: 6,
@@ -1396,7 +1485,7 @@ const styles = StyleSheet.create({
   closureMaterialHelp: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#78350F',
+    color: COLORS.textSecondary,
     marginBottom: 12,
   },
 
@@ -1554,6 +1643,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.white,
+  },
+
+  archiveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    gap: 8,
+  },
+
+  archiveBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.statRed,
   },
 });
 

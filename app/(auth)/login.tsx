@@ -2,7 +2,7 @@ import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme'
 import { supabase, toSupabaseUserMessage } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { authStorage } from '@/lib/authStorage';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -26,13 +26,14 @@ export default function Login() {
   const [rememberEmail, setRememberEmail] = useState(false);
   const [loading, setLoading] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
+  const signingIn = useRef(false);
 
   useEffect(() => {
     let mounted = true;
     async function loadSavedEmail() {
       const [remember, savedEmail] = await Promise.all([
-        SecureStore.getItemAsync(REMEMBER_EMAIL_KEY).catch(() => null),
-        SecureStore.getItemAsync(SAVED_EMAIL_KEY).catch(() => null),
+        authStorage.getItemAsync(REMEMBER_EMAIL_KEY).catch(() => null),
+        authStorage.getItemAsync(SAVED_EMAIL_KEY).catch(() => null),
       ]);
       if (!mounted) return;
       if (remember === 'true' && savedEmail) {
@@ -48,6 +49,7 @@ export default function Login() {
   }, []);
 
   async function signInWithEmail() {
+    if (signingIn.current) return;
     if (!email.trim()) {
       Alert.alert('Champs requis', 'Veuillez saisir votre adresse e-mail.');
       return;
@@ -57,6 +59,7 @@ export default function Login() {
       return;
     }
     const normalizedEmail = email.trim().toLowerCase();
+    signingIn.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
@@ -65,13 +68,13 @@ export default function Login() {
       } else {
         if (rememberEmail) {
           await Promise.all([
-            SecureStore.setItemAsync(REMEMBER_EMAIL_KEY, 'true'),
-            SecureStore.setItemAsync(SAVED_EMAIL_KEY, normalizedEmail),
-          ]);
+            authStorage.setItemAsync(REMEMBER_EMAIL_KEY, 'true'),
+            authStorage.setItemAsync(SAVED_EMAIL_KEY, normalizedEmail),
+          ]).catch(() => undefined);
         } else {
           await Promise.all([
-            SecureStore.deleteItemAsync(REMEMBER_EMAIL_KEY).catch(() => undefined),
-            SecureStore.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => undefined),
+            authStorage.deleteItemAsync(REMEMBER_EMAIL_KEY).catch(() => undefined),
+            authStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => undefined),
           ]);
         }
         router.replace('/');
@@ -79,6 +82,7 @@ export default function Login() {
     } catch (error) {
       Alert.alert('Erreur de connexion', toSupabaseUserMessage(error));
     } finally {
+      signingIn.current = false;
       setLoading(false);
     }
   }

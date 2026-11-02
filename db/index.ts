@@ -111,7 +111,73 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       value TEXT NOT NULL,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS incident_drafts (
+      user_id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     
+  `);
+
+  // Migration: Add reclamation_by column if missing (for existing installs)
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN reclamation_by TEXT');
+
+  // Migration: Add region column to communes if missing
+  await addColumnIfMissing(db, 'ALTER TABLE communes ADD COLUMN region TEXT');
+
+  // Migration: Add GPS/media columns if missing
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN latitude REAL');
+
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN longitude REAL');
+
+  await addColumnIfMissing(db, "ALTER TABLE incidents ADD COLUMN media_urls TEXT DEFAULT '[]'");
+
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN client_id TEXT');
+
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN gps_accuracy REAL');
+
+  await addColumnIfMissing(db, "ALTER TABLE incidents ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'pending'");
+
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN sync_error TEXT');
+
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN archived_at TEXT');
+
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN depart_hta TEXT');
+  await addColumnIfMissing(db, 'ALTER TABLE incidents ADD COLUMN no_material_used INTEGER NOT NULL DEFAULT 0');
+  await addColumnIfMissing(db, "ALTER TABLE incidents ADD COLUMN material_draft TEXT NOT NULL DEFAULT '[]'");
+
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS incident_materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_incident_id INTEGER NOT NULL,
+      remote_incident_id TEXT,
+      client_material_id TEXT NOT NULL UNIQUE,
+      material_name TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK(quantity > 0),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(local_incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+    );
+  `);
+
+  await addColumnIfMissing(db, 'ALTER TABLE sync_operations ADD COLUMN operation_key TEXT');
+
+  await addColumnIfMissing(db, 'ALTER TABLE sync_operations ADD COLUMN next_attempt_at TEXT');
+
+  await addColumnIfMissing(db, 'ALTER TABLE sync_operations ADD COLUMN error_code TEXT');
+
+  await addColumnIfMissing(db, 'ALTER TABLE sync_operations ADD COLUMN is_terminal INTEGER NOT NULL DEFAULT 0');
+
+  await migrateSyncOperationsForMaterials(db);
+
+  await db.runAsync(`
+    UPDATE incidents
+    SET client_id = 'legacy-' || id || '-' || strftime('%s', COALESCE(created_at, CURRENT_TIMESTAMP))
+    WHERE client_id IS NULL OR client_id = ''
+  `);
+
+  await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
     CREATE INDEX IF NOT EXISTS idx_incidents_synced ON incidents(synced);
     CREATE INDEX IF NOT EXISTS idx_incidents_created_at ON incidents(created_at);
@@ -137,121 +203,6 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
       ON incident_type_options(active, network_type, sort_order, name);
     CREATE INDEX IF NOT EXISTS idx_depart_hta_options_active_sort
       ON depart_hta_options(active, sort_order, name);
-  `);
-
-  // Migration: Add reclamation_by column if missing (for existing installs)
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN reclamation_by TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  // Migration: Add region column to communes if missing
-  try {
-    await db.runAsync('ALTER TABLE communes ADD COLUMN region TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  // Migration: Add GPS/media columns if missing
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN latitude REAL');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN longitude REAL');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync("ALTER TABLE incidents ADD COLUMN media_urls TEXT DEFAULT '[]'");
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN client_id TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN gps_accuracy REAL');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync("ALTER TABLE incidents ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'pending'");
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN sync_error TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN archived_at TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE incidents ADD COLUMN depart_hta TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS incident_materials (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      local_incident_id INTEGER NOT NULL,
-      remote_incident_id TEXT,
-      client_material_id TEXT NOT NULL UNIQUE,
-      material_name TEXT NOT NULL,
-      quantity REAL NOT NULL CHECK(quantity > 0),
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(local_incident_id) REFERENCES incidents(id) ON DELETE CASCADE
-    );
-  `);
-
-  try {
-    await db.runAsync('ALTER TABLE sync_operations ADD COLUMN operation_key TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE sync_operations ADD COLUMN next_attempt_at TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE sync_operations ADD COLUMN error_code TEXT');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  try {
-    await db.runAsync('ALTER TABLE sync_operations ADD COLUMN is_terminal INTEGER NOT NULL DEFAULT 0');
-  } catch {
-    // Column already exists - ignore
-  }
-
-  await migrateSyncOperationsForMaterials(db);
-
-  await db.runAsync(`
-    UPDATE incidents
-    SET client_id = 'legacy-' || id || '-' || strftime('%s', COALESCE(created_at, CURRENT_TIMESTAMP))
-    WHERE client_id IS NULL OR client_id = ''
   `);
 
   await db.withTransactionAsync(async () => {
@@ -356,7 +307,7 @@ async function migrateSyncOperationsForMaterials(db: SQLiteDatabase): Promise<vo
       );
     `);
     await db.runAsync(`
-      INSERT OR IGNORE INTO sync_operations_next (
+      INSERT INTO sync_operations_next (
         id, operation_key, operation_type, local_incident_id, remote_incident_id,
         payload_json, status, attempt_count, next_attempt_at, error_code,
         is_terminal, last_error, created_at, updated_at
@@ -381,4 +332,11 @@ async function migrateSyncOperationsForMaterials(db: SQLiteDatabase): Promise<vo
     await db.runAsync('DROP TABLE sync_operations');
     await db.runAsync('ALTER TABLE sync_operations_next RENAME TO sync_operations');
   });
+}
+
+async function addColumnIfMissing(db: SQLiteDatabase, statement: string): Promise<void> {
+  const match = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(statement);
+  if (!match) throw new Error('Invalid local migration statement');
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${match[1]})`);
+  if (!columns.some(column => column.name === match[2])) await db.runAsync(statement);
 }

@@ -1,3 +1,5 @@
+export const NO_MATERIAL_USED_LABEL = 'Aucun matériel utilisé';
+
 export interface IncidentMaterialInput {
   client_material_id: string;
   material_name: string;

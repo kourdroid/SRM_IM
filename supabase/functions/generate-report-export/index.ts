@@ -1,11 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
+import { reportDateRange } from '../_shared/reportDates.ts';
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 100_000;
 const OPEN_FOLLOW_UP_DAYS = 7;
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-type SupabaseClient = ReturnType<typeof createClient>;
+const createExportClient = (url: string, key: string) => createClient(url, key);
+type SupabaseClient = ReturnType<typeof createExportClient>;
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
 interface ExportRequest {
   startDate: string;
@@ -23,6 +30,7 @@ interface FilterLabels {
 }
 
 Deno.serve(async (request) => {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
   if (request.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
   }
@@ -45,16 +53,22 @@ Deno.serve(async (request) => {
     return json({ error: 'Invalid session' }, 401);
   }
 
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from('user_profiles')
-    .select('role')
+    .select('role, approval_status')
     .eq('id', userId)
     .maybeSingle();
-  if (profile?.role !== 'admin') {
-    return json({ error: 'Admin role required' }, 403);
+  if (profileError) return json({ error: 'Could not verify account permissions' }, 503);
+  if (profile?.role !== 'admin' || profile.approval_status !== 'approved') {
+    return json({ error: 'Approved admin role required' }, 403);
   }
 
-  const body = await request.json() as ExportRequest;
+  let body: ExportRequest;
+  try {
+    const value = await request.json();
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return json({ error: 'Invalid request body' }, 400);
+    body = value as ExportRequest;
+  } catch { return json({ error: 'Invalid JSON body' }, 400); }
   if (!isIsoDate(body.startDate) || !isIsoDate(body.endDate) || body.endDate < body.startDate) {
     return json({ error: 'Invalid date range' }, 400);
   }
@@ -91,13 +105,12 @@ Deno.serve(async (request) => {
     const incidentRows: ReportRow[] = [];
     let offset = 0;
     let exportComplete = false;
-    const endExclusive = new Date(`${body.endDate}T00:00:00.000Z`);
-    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const range = reportDateRange(body.startDate, body.endDate);
 
     while (offset < MAX_ROWS) {
       const { data, error } = await userScoped.rpc('get_incident_report_rows', {
-        p_start_date: `${body.startDate}T00:00:00.000Z`,
-        p_end_date: endExclusive.toISOString(),
+        p_start_date: range.start,
+        p_end_date: range.end,
         p_commune_id: body.communeId ?? null,
         p_agent_id: body.agentId ?? null,
         p_type: body.type ?? null,
@@ -135,13 +148,14 @@ Deno.serve(async (request) => {
       });
     if (uploadError) throw uploadError;
 
-    await admin.from('report_exports').update({
+    const { data: completedJob, error: completionError } = await admin.from('report_exports').update({
       status: 'done',
       storage_path: storagePath,
       row_count: incidentRows.length,
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq('id', job.id);
+    }).eq('id', job.id).select('id').single();
+    if (completionError || !completedJob) throw new Error(completionError?.message || 'Export completion could not be recorded');
 
     const { data: signed, error: signedError } = await admin.storage
       .from('report-exports')
@@ -151,11 +165,12 @@ Deno.serve(async (request) => {
     return json({ id: job.id, rowCount: incidentRows.length, format: 'xlsx', downloadUrl: signed.signedUrl });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Export failed';
-    await admin.from('report_exports').update({
+    const { error: failureUpdateError } = await admin.from('report_exports').update({
       status: 'failed',
       error_message: message,
       updated_at: new Date().toISOString(),
     }).eq('id', job.id);
+    if (failureUpdateError) console.error('Could not record export failure', failureUpdateError.message);
     return json({ error: message, id: job.id }, 500);
   }
 });
@@ -514,12 +529,14 @@ function round(value: number): number {
 }
 
 function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }

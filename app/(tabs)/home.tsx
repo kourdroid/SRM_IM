@@ -1,8 +1,10 @@
+import { loadClosureDraft, saveClosureDraft } from '@/db/incidentDrafts';
+import MaterialUsageSelector, { type MaterialUsageChoice } from '@/components/MaterialUsageSelector';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
@@ -12,7 +14,9 @@ import { useSync } from '../../hooks/useSync';
 import { subscribeSyncCompleted } from '../../lib/syncEvents';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { SrmListSkeleton } from '@/components/ui/srm';
+import IncidentShareButton from '@/components/IncidentShareButton';
 import {
+  NO_MATERIAL_USED_LABEL,
   buildEquipmentSummary,
   createEmptyMaterialFormRow,
   normalizeMaterialRows,
@@ -71,6 +75,7 @@ interface Incident {
   sync_status?: 'pending' | 'syncing' | 'synced' | 'failed';
   sync_error?: string | null;
   created_at?: string;
+  material_draft?: string;
   synced: number;
 }
 
@@ -86,6 +91,7 @@ const INCIDENT_LIST_COLUMNS = [
   'status',
   'commune_id',
   'equipment_used',
+  'material_draft',
   'reclamation',
   'reclamation_by',
   'reclamation_name',
@@ -115,9 +121,24 @@ export default function Home() {
   const [selectedIncidentMaterials, setSelectedIncidentMaterials] = useState<IncidentMaterialRow[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
+  const [materialUsage, setMaterialUsage] = useState<MaterialUsageChoice>(null);
   const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [isClosingIncident, setIsClosingIncident] = useState(false);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
 
+
+  const closureSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (!user?.id || !selectedIncident || !isModalVisible || materialsLoading || isClosingIncident
+      || selectedIncident.status !== 'open' || selectedIncidentMaterials.length > 0) return;
+    const id = Number(selectedIncident.id);
+    const userId = user.id;
+    const draft = { rows: closureMaterialRows, choice: materialUsage };
+    closureSaveQueue.current = closureSaveQueue.current
+      .then(() => saveClosureDraft(db, id, userId, draft))
+      .catch(() => Alert.alert('Brouillon', 'Le matériel ne peut pas être enregistré. Gardez ce formulaire ouvert.'));
+  }, [db, user?.id, selectedIncident, isModalVisible, materialsLoading, isClosingIncident,
+    selectedIncidentMaterials.length, closureMaterialRows, materialUsage]);
 
   // Fetch incidents from SQLite
   const fetchIncidents = useCallback(async (reset = true, cursor?: Incident) => {
@@ -188,18 +209,24 @@ export default function Home() {
   }, [fetchIncidents]);
 
   const handleCloseIncident = async (incident: Incident) => {
+    if (isClosingIncident || materialsLoading) return;
     const hasExistingMaterials = selectedIncidentMaterials.length > 0;
     if (!hasExistingMaterials && !showClosureMaterials) {
       setShowClosureMaterials(true);
       return;
     }
 
-    const normalizedMaterials = normalizeMaterialRows(closureMaterialRows);
+    if (!hasExistingMaterials && materialUsage === null) {
+      Alert.alert('Matériel utilisé', 'Choisissez avec matériel ou aucun matériel utilisé.');
+      return;
+    }
+    const noMaterialUsed = !hasExistingMaterials && materialUsage === 'none';
+    const normalizedMaterials = noMaterialUsed ? [] : normalizeMaterialRows(closureMaterialRows);
     if (normalizedMaterials === null) {
       Alert.alert("Matériel invalide", "Chaque ligne de matériel doit avoir un nom et une quantité positive.");
       return;
     }
-    if (!hasExistingMaterials && normalizedMaterials.length === 0) {
+    if (!hasExistingMaterials && !noMaterialUsed && normalizedMaterials.length === 0) {
       Alert.alert("Matériel requis", "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
       return;
     }
@@ -210,26 +237,28 @@ export default function Home() {
       const existingSummary = incident.equipment_used || selectedIncidentMaterials
         .map((material) => `${material.material_name} x${formatQuantity(material.quantity)}`)
         .join(', ');
-      const equipmentSummary = normalizedMaterials.length > 0
+      const equipmentSummary = noMaterialUsed ? NO_MATERIAL_USED_LABEL : normalizedMaterials.length > 0
         ? buildEquipmentSummary(normalizedMaterials)
         : existingSummary;
 
-      await db.withTransactionAsync(async () => {
+      await closureSaveQueue.current;
+      await db.withExclusiveTransactionAsync(async (txn) => {
         if (normalizedMaterials.length > 0) {
-          await insertIncidentMaterials(db, localIncidentId, normalizedMaterials);
-          await enqueueSyncMaterials(db, localIncidentId);
+          await insertIncidentMaterials(txn, localIncidentId, normalizedMaterials);
+          await enqueueSyncMaterials(txn, localIncidentId);
         }
-        await db.runAsync(
+        await txn.runAsync(
           `UPDATE incidents
-           SET status = ?, equipment_used = ?, synced = 0, sync_status = 'pending', sync_error = NULL
+           SET status = ?, equipment_used = ?, no_material_used = ?, material_draft = '[]', synced = 0, sync_status = 'pending', sync_error = NULL
            WHERE id = ?`,
-          ['closed', equipmentSummary, localIncidentId]
+          ['closed', equipmentSummary, noMaterialUsed ? 1 : 0, localIncidentId]
         );
-        await enqueueStatusUpdate(db, localIncidentId, 'closed');
+        await enqueueStatusUpdate(txn, localIncidentId, 'closed');
       });
       Alert.alert("Succès", "Incident clôturé avec succès");
       setIsModalVisible(false);
       setShowClosureMaterials(false);
+      setMaterialUsage(null);
       setClosureMaterialRows([createEmptyMaterialFormRow()]);
       await syncPendingItems({ reason: 'manual', forceReferenceData: true });
       await fetchIncidents(true);
@@ -246,17 +275,30 @@ export default function Home() {
   // ⚡ Bolt: Wrapped in useCallback to provide a stable reference and prevent re-renders in children
   const openIncidentDetails = useCallback(async (incident: Incident) => {
     setSelectedIncident(incident);
+    setSelectedIncidentMaterials([]);
+    setMaterialsLoading(true);
     setIsModalVisible(true);
     setShowClosureMaterials(false);
+    setMaterialUsage(null);
     setClosureMaterialRows([createEmptyMaterialFormRow()]);
     try {
+      await closureSaveQueue.current;
       const materials = await getIncidentMaterialsByLocalId(db, Number(incident.id));
+      const draft = user?.id ? await loadClosureDraft(db, Number(incident.id), user.id) : null;
       setSelectedIncidentMaterials(materials);
+      if (materials.length === 0 && draft) {
+        setClosureMaterialRows(draft.rows);
+        setMaterialUsage(draft.choice);
+      }
     } catch (error) {
       console.warn('Failed to load incident materials:', error);
       setSelectedIncidentMaterials([]);
+      Alert.alert('Matériel', 'Lecture du matériel impossible. Fermez puis rouvrez cet incident.');
+      setIsModalVisible(false);
+    } finally {
+      setMaterialsLoading(false);
     }
-  }, [db]);
+  }, [db, user?.id]);
 
   const addClosureMaterialRow = () => {
     setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
@@ -340,6 +382,7 @@ export default function Home() {
             ) : null}
           </View>
         </View>
+        <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
         <View style={{
           paddingHorizontal: SPACING.sm,
           paddingVertical: SPACING.xs,
@@ -352,6 +395,8 @@ export default function Home() {
           <Text style={{ fontSize: 10, fontWeight: '900', color: isOpen ? COLORS.signalRed : COLORS.signalGreen, letterSpacing: 0.5, textTransform: 'uppercase' }}>
             {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
           </Text>
+        </View>
+        <IncidentShareButton incidentId={Number(item.id)} />
         </View>
       </TouchableOpacity>
     );
@@ -498,12 +543,17 @@ export default function Home() {
                     </Text>
                     <Text style={{ color: '#111827', fontSize: 24, fontWeight: '900', letterSpacing: 0.5 }}>DÉTAILS INCIDENT</Text>
                   </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <IncidentShareButton incidentId={Number(selectedIncident.id)} />
                   <TouchableOpacity
                     onPress={() => setIsModalVisible(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Fermer les détails de l’incident"
                     style={{ backgroundColor: '#F3F4F6', padding: 8, borderRadius: 4, borderWidth: 1, borderColor: '#E5E7EB' }}
                   >
                     <Ionicons name="close" size={24} color="#111827" />
                   </TouchableOpacity>
+                  </View>
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 32 }}>
@@ -620,14 +670,15 @@ export default function Home() {
                 <View style={{ flex: 1 }} />
 
                 {selectedIncident.status !== 'closed' && showClosureMaterials && selectedIncidentMaterials.length === 0 ? (
-                  <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#F59E0B', backgroundColor: '#FFFBEB' }}>
-                    <Text style={{ color: '#92400E', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
-                      MATÉRIEL OBLIGATOIRE
+                  <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#FFFFFF' }}>
+                    <Text style={{ color: '#111827', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
+                      MATÉRIEL UTILISÉ
                     </Text>
-                    <Text style={{ color: '#78350F', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
-                      Renseignez le matériel utilisé avant de clôturer cet incident.
+                    <Text style={{ color: '#6B7280', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
+                      Déclarez le matériel utilisé ou confirmez qu’aucun matériel n’a été utilisé.
                     </Text>
-                    <View style={{ gap: 10 }}>
+                    <MaterialUsageSelector value={materialUsage} onChange={setMaterialUsage} disabled={isClosingIncident} />
+                    {materialUsage === 'used' && <View style={{ gap: 10 }}>
                       {closureMaterialRows.map((row, index) => (
                         <View key={row.id} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                           <TextInput
@@ -640,7 +691,7 @@ export default function Home() {
                               fontSize: 15,
                               fontWeight: '600',
                               borderWidth: 1,
-                              borderColor: '#FCD34D',
+                              borderColor: '#D1D5DB',
                             }}
                             value={row.materialName}
                             onChangeText={(value) => updateClosureMaterialRow(row.id, { materialName: value })}
@@ -658,7 +709,7 @@ export default function Home() {
                               fontSize: 15,
                               fontWeight: '800',
                               borderWidth: 1,
-                              borderColor: '#FCD34D',
+                              borderColor: '#D1D5DB',
                               textAlign: 'center',
                             }}
                             value={row.quantity}
@@ -701,13 +752,13 @@ export default function Home() {
                           borderRadius: 8,
                           backgroundColor: '#FFFFFF',
                           borderWidth: 1,
-                          borderColor: '#FCD34D',
+                          borderColor: '#D1D5DB',
                         }}
                       >
                         <Ionicons name="add" size={18} color="#111827" />
                         <Text style={{ color: '#111827', fontWeight: '900' }}>Ajouter un matériel</Text>
                       </TouchableOpacity>
-                    </View>
+                    </View>}
                   </View>
                 ) : null}
 
@@ -726,9 +777,9 @@ export default function Home() {
                         borderColor: '#DAF22C'
                       }}
                       onPress={() => handleCloseIncident(selectedIncident)}
-                      disabled={isClosingIncident}
+                      disabled={isClosingIncident || materialsLoading}
                     >
-                      {isClosingIncident ? (
+                      {isClosingIncident || materialsLoading ? (
                         <ActivityIndicator color="#111827" />
                       ) : (
                         <>

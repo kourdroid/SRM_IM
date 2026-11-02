@@ -44,11 +44,12 @@ export default function DirectorIncidents() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  const buildFilters = (lastCreatedAt?: string): DirectorIncidentFilters => ({
+  const buildFilters = (lastCreatedAt?: string, lastId?: string): DirectorIncidentFilters => ({
     status,
     type,
     search: search.trim() || undefined,
     lastCreatedAt,
+    lastId,
   });
 
   const loadInitial = async () => {
@@ -68,7 +69,7 @@ export default function DirectorIncidents() {
     setLoadingMore(true);
     try {
       const last = incidents[incidents.length - 1];
-      const data = await DirectorService.getIncidents(20, buildFilters(last.created_at));
+      const data = await DirectorService.getIncidents(20, buildFilters(last.created_at, last.id));
       if (data.length > 0) {
         setIncidents(prev => [...prev, ...data]);
       }

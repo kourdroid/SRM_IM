@@ -1,0 +1,5 @@
+project_id = "SRM"
+
+[functions.send-incident-notifications]
+# The worker validates its dedicated Vault credential before processing jobs.
+verify_jwt = false

@@ -1,6 +1,8 @@
+import MaterialUsageSelector, { type MaterialUsageChoice } from '@/components/MaterialUsageSelector';
 import { SrmSkeletonBlock, SrmSkeletonCard } from '@/components/ui/srm';
 import CustomBarChart from '@/components/CustomBarChart';
 import {
+  NO_MATERIAL_USED_LABEL,
   buildEquipmentSummary,
   createEmptyMaterialFormRow,
   normalizeMaterialRows,
@@ -9,10 +11,11 @@ import {
 import { type ChartDataPoint, type DashboardStats } from '@/src/core/entities/admin';
 import { AdminService } from '@/src/core/services/adminService';
 import { IncidentAdminService, type Incident } from '@/src/core/services/incidentAdminService';
+import { countUnreadAdminNotifications } from '@/src/core/services/adminNotificationService';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   Linking,
@@ -23,6 +26,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  KeyboardAvoidingView,
   Modal,
 } from 'react-native';
 
@@ -44,7 +48,9 @@ const COLORS = {
 } as const;
 
 export default function AdminDashboard() {
+  const [unreadNotifications, setUnreadNotifications] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     total: 0,
     open: 0,
@@ -56,14 +62,13 @@ export default function AdminDashboard() {
   const [latestIncidents, setLatestIncidents] = useState<Incident[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
+  const [materialUsage, setMaterialUsage] = useState<MaterialUsageChoice>(null);
   const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
   const [isClosingIncident, setIsClosingIncident] = useState(false);
 
-  useEffect(() => {
-    fetchStats();
-  }, []);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const [newStats, chartPoints, resolution, latest] = await Promise.all([
         AdminService.getDashboardStats(),
@@ -78,14 +83,23 @@ export default function AdminDashboard() {
       setLatestIncidents(latest);
     } catch (err) {
       console.error('Failed to fetch admin stats', err);
+      setLoadError('Les données du tableau de bord sont indisponibles. Vérifiez votre connexion et réessayez.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(useCallback(() => { void fetchStats(); }, [fetchStats]));
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    void countUnreadAdminNotifications().then(count => { if (active) setUnreadNotifications(count); }).catch(() => { if (active) setUnreadNotifications(null); });
+    return () => { active = false; };
+  }, []));
 
   const openIncidentDetails = (incident: Incident) => {
     setSelectedIncident(incident);
     setShowClosureMaterials(false);
+    setMaterialUsage(null);
     setClosureMaterialRows([createEmptyMaterialFormRow()]);
   };
 
@@ -102,18 +116,24 @@ export default function AdminDashboard() {
   };
 
   const handleToggleStatusInModal = async (incident: Incident) => {
+    if (isClosingIncident) return;
     const newStatus = incident.status === 'open' ? 'closed' : 'open';
     const existingMaterials = incident.materials || [];
-    const normalizedMaterials = normalizeMaterialRows(closureMaterialRows);
+    const noMaterialUsed = incident.status === 'open' && existingMaterials.length === 0 && materialUsage === 'none';
+    const normalizedMaterials = noMaterialUsed ? [] : normalizeMaterialRows(closureMaterialRows);
     if (incident.status === 'open' && existingMaterials.length === 0 && !showClosureMaterials) {
       setShowClosureMaterials(true);
+      return;
+    }
+    if (incident.status === 'open' && existingMaterials.length === 0 && materialUsage === null) {
+      Alert.alert('Matériel utilisé', 'Choisissez avec matériel ou aucun matériel utilisé.');
       return;
     }
     if (incident.status === 'open' && normalizedMaterials === null) {
       Alert.alert('Matériel invalide', 'Chaque ligne de matériel doit avoir un nom et une quantité positive.');
       return;
     }
-    if (incident.status === 'open' && existingMaterials.length === 0 && (normalizedMaterials?.length ?? 0) === 0) {
+    if (incident.status === 'open' && existingMaterials.length === 0 && !noMaterialUsed && (normalizedMaterials?.length ?? 0) === 0) {
       Alert.alert('Matériel requis', "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
       return;
     }
@@ -127,14 +147,16 @@ export default function AdminDashboard() {
           quantity: material.quantity,
         }))
         : existingMaterials;
-      const nextEquipmentUsed = closureMaterials.length > 0
-        ? buildEquipmentSummary(closureMaterials)
-        : incident.equipment_used;
+      let nextEquipmentUsed = incident.equipment_used;
+      if (noMaterialUsed) nextEquipmentUsed = NO_MATERIAL_USED_LABEL;
+      else if (closureMaterials.length > 0) nextEquipmentUsed = buildEquipmentSummary(closureMaterials);
+      else if (incident.status === 'closed' && incident.no_material_used) nextEquipmentUsed = '';
 
-      if (incident.status === 'open' && closureMaterials.length > 0) {
+      if (incident.status === 'open' && (closureMaterials.length > 0 || noMaterialUsed)) {
         await IncidentAdminService.closeIncidentWithMaterials({
           id: incident.id,
           materials: closureMaterials,
+          no_material_used: noMaterialUsed,
         });
       } else {
         await IncidentAdminService.updateIncidentStatus({ id: incident.id, status: newStatus });
@@ -143,6 +165,7 @@ export default function AdminDashboard() {
       setLatestIncidents(prev => prev.map(i => i.id === incident.id ? {
         ...i,
         status: newStatus,
+        no_material_used: noMaterialUsed,
         materials: nextMaterials,
         equipment_used: nextEquipmentUsed,
         materials_summary: nextEquipmentUsed,
@@ -150,11 +173,13 @@ export default function AdminDashboard() {
       setSelectedIncident(prev => prev && prev.id === incident.id ? {
         ...prev,
         status: newStatus,
+        no_material_used: noMaterialUsed,
         materials: nextMaterials,
         equipment_used: nextEquipmentUsed,
         materials_summary: nextEquipmentUsed,
       } : prev);
       setShowClosureMaterials(false);
+      setMaterialUsage(null);
       setClosureMaterialRows([createEmptyMaterialFormRow()]);
       
       // Refresh KPI statistics
@@ -183,6 +208,16 @@ export default function AdminDashboard() {
     return <AdminDashboardSkeleton />;
   }
 
+  if (loadError) {
+    return <View style={{ flex: 1, backgroundColor: COLORS.background, padding: 24, justifyContent: 'center' }}>
+      <Text accessibilityRole="alert" style={{ color: COLORS.textPrimary, marginBottom: 16 }}>{loadError}</Text>
+      <TouchableOpacity accessibilityRole="button" onPress={() => { void fetchStats(); }}
+        style={{ backgroundColor: COLORS.accent, padding: 16, borderRadius: 12 }}>
+        <Text style={{ color: COLORS.textPrimary }}>Réessayer</Text>
+      </TouchableOpacity>
+    </View>;
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <ScrollView
@@ -197,10 +232,11 @@ export default function AdminDashboard() {
               <Text style={styles.headerGreeting}>Intervex</Text>
               <Text style={styles.headerTitle}>Tableau de bord</Text>
             </View>
-            <View style={styles.headerBadge}>
-              <Ionicons name="time-outline" size={14} color={COLORS.white} />
-              <Text style={styles.headerBadgeText}>{"Aujourd'hui"}</Text>
-            </View>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Notifications${unreadNotifications === null ? '' : `, ${unreadNotifications} à consulter`}`}
+              style={[styles.headerBadge, { minWidth: 44, minHeight: 44 }]} onPress={() => router.push('/(admin)/notifications')}>
+              <Ionicons name="notifications-outline" size={20} color={COLORS.white} />
+              <Text style={styles.headerBadgeText}>{unreadNotifications === null ? 'Alertes' : unreadNotifications > 99 ? '99+' : unreadNotifications}</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -346,7 +382,7 @@ export default function AdminDashboard() {
         transparent={true}
         onRequestClose={() => setSelectedIncident(null)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalContent}>
             {selectedIncident && (
               <>
@@ -369,7 +405,7 @@ export default function AdminDashboard() {
                 </View>
 
                 {/* Modal Scroll Content */}
-                <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
                   {/* Status Badge */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <View style={[
@@ -457,7 +493,7 @@ export default function AdminDashboard() {
                         ))}
                       </View>
                     ) : (
-                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Aucun'}</Text>
+                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Non renseigné'}</Text>
                     )}
                   </View>
 
@@ -500,15 +536,15 @@ export default function AdminDashboard() {
                       </ScrollView>
                     </View>
                   )}
-                </ScrollView>
 
                 {selectedIncident.status === 'open' && showClosureMaterials && (!selectedIncident.materials || selectedIncident.materials.length === 0) ? (
                   <View style={styles.closureMaterialBlock}>
-                    <Text style={styles.closureMaterialTitle}>MATÉRIEL OBLIGATOIRE</Text>
+                    <Text style={styles.closureMaterialTitle}>MATÉRIEL UTILISÉ</Text>
                     <Text style={styles.closureMaterialHelp}>
-                      Renseignez le matériel utilisé avant de clôturer cet incident.
+                      Déclarez le matériel utilisé ou confirmez qu’aucun matériel n’a été utilisé.
                     </Text>
-                    <View style={styles.closureMaterialRows}>
+                    <MaterialUsageSelector value={materialUsage} onChange={setMaterialUsage} disabled={isClosingIncident} />
+                    {materialUsage === 'used' && <View style={styles.closureMaterialRows}>
                       {closureMaterialRows.map((row, index) => (
                         <View key={row.id} style={styles.closureMaterialRow}>
                           <TextInput
@@ -547,9 +583,11 @@ export default function AdminDashboard() {
                         <Ionicons name="add" size={18} color={COLORS.textPrimary} />
                         <Text style={styles.closureMaterialAddText}>Ajouter un matériel</Text>
                       </TouchableOpacity>
-                    </View>
+                    </View>}
                   </View>
                 ) : null}
+
+                </ScrollView>
 
                 {/* Modal Footer Actions */}
                 <View style={styles.modalFooter}>
@@ -574,7 +612,7 @@ export default function AdminDashboard() {
               </>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -958,6 +996,7 @@ const styles = StyleSheet.create({
   },
 
   modalScroll: {
+    flexShrink: 1,
     padding: 20,
   },
 
@@ -1028,14 +1067,14 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#F59E0B',
-    backgroundColor: '#FFFBEB',
+    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.cardBg,
   },
 
   closureMaterialTitle: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#92400E',
+    color: COLORS.textPrimary,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
     marginBottom: 6,
@@ -1044,7 +1083,7 @@ const styles = StyleSheet.create({
   closureMaterialHelp: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#78350F',
+    color: COLORS.textSecondary,
     marginBottom: 12,
   },
 

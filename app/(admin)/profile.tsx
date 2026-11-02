@@ -46,6 +46,12 @@ export default function AdminProfile() {
 
         <SrmPanel style={styles.panel}>
           <SrmSettingsRow
+            icon="notifications-outline"
+            title="Notifications"
+            description="Alertes urgentes BT et MT, son et prise en compte."
+            onPress={() => router.push('/(admin)/notifications')}
+          />
+          <SrmSettingsRow
             icon="people-outline"
             iconColor={COLORS.signalBlue}
             iconBackground={COLORS.signalBlueTint}

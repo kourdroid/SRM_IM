@@ -19,20 +19,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
-import { insertIncidentMaterials } from '../../db/incidentMaterials';
+import { clearIncidentDraft, incidentDraftSchema, isIncidentPhotoReferenced, loadIncidentDraft, saveIncidentDraft, type IncidentDraft } from '../../db/incidentDrafts';
 import {
   getActiveDepartHtaOptions,
   getAllActiveIncidentTypes,
   type DepartHtaOptionRow,
   type IncidentTypeOptionRow,
 } from '../../db/referenceOptions';
-import { enqueueCreateIncident, enqueueMediaUpload, enqueueSyncMaterials } from '../../db/syncOperations';
+import { enqueueCreateIncident, enqueueMediaUpload } from '../../db/syncOperations';
 import { useSync } from '../../hooks/useSync';
-import { persistIncidentMedia } from '../../lib/imageUtils';
+import { deleteLocalMedia, persistIncidentMedia } from '../../lib/imageUtils';
 import {
-  buildEquipmentSummary,
   createEmptyMaterialFormRow,
-  normalizeMaterialRows,
   type MaterialFormRow,
 } from '../../lib/materials';
 
@@ -82,6 +80,15 @@ export default function CreateIncidentScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [draftUserId, setDraftUserId] = useState<string | null>(null);
+  const [draftEpoch, setDraftEpoch] = useState(0);
+  const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const draftSaved = useRef(false);
+  const formVersion = useRef(0);
+  const submitting = useRef(false);
+  const selectingPhotos = useRef(false);
+  const removedPhotos = useRef(new Set<string>());
+  const draftClientId = useRef(`incident-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
   const incidentTypes = useMemo(
     () => incidentTypeOptions
       .filter(option => option.network_type === type)
@@ -119,10 +126,27 @@ export default function CreateIncidentScreen() {
     }
   }, [db]);
 
-  // Reset form every time the screen gains focus (tab switching preserves state)
+  // Refresh references without discarding an unfinished field report.
   useFocusEffect(
     useCallback(() => {
       void loadFieldReferences();
+    }, [loadFieldReferences])
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    formVersion.current += 1;
+    setDraftUserId(null);
+    draftSaved.current = false;
+    void (async () => {
+      if (!user?.id) return;
+      await draftSaveQueue.current;
+      const storedDraft = await loadIncidentDraft<unknown>(db, user.id);
+      const parsed = storedDraft === null ? null : incidentDraftSchema.safeParse(storedDraft);
+      if (parsed && !parsed.success) throw new Error('Le brouillon enregistré est invalide. Il a été conservé.');
+      const draft = parsed?.success ? parsed.data : null;
+      if (cancelled) return;
+      draftClientId.current = draft?.clientId || createClientId();
       setCurrentStep(1);
       setType("BT");
       setIncidentDate(new Date());
@@ -138,10 +162,37 @@ export default function CreateIncidentScreen() {
       setReclamationBy("Administration");
       setSelectedImages([]);
       setGpsLocation(null);
-    }, [loadFieldReferences])
-  );
+      if (draft) {
+        setType(draft.type); setIncidentDate(new Date(draft.incidentDate));
+        setCommune(draft.commune); setVillage(draft.village); setIncidentType(draft.incidentType);
+        setDepartHta(draft.departHta); setMaterialRows(draft.materialRows); setDescription(draft.description);
+        setIsReclamation(draft.isReclamation); setReclamationName(draft.reclamationName);
+        setReclamationBy(draft.reclamationBy); setSelectedImages(draft.selectedImages); setCurrentStep(draft.currentStep);
+      }
+      setDraftUserId(user.id);
+    })().catch(error => { if (!cancelled) Alert.alert('Brouillon', error instanceof Error ? error.message : 'Lecture impossible.'); });
+    return () => { cancelled = true; formVersion.current += 1; };
+  }, [db, user?.id, draftEpoch]);
 
   useEffect(() => {
+    if (!user?.id || draftUserId !== user.id || draftSaved.current) return;
+    const draft: IncidentDraft = { clientId: draftClientId.current, type, incidentDate: incidentDate.toISOString(), commune, village,
+      incidentType, departHta, materialRows, description, isReclamation, reclamationName,
+      reclamationBy, selectedImages, currentStep };
+    const discarded = [...removedPhotos.current];
+    draftSaveQueue.current = draftSaveQueue.current.then(async () => {
+      await saveIncidentDraft(db, user.id, draft);
+      for (const uri of discarded) {
+        if (!(await isIncidentPhotoReferenced(db, uri))) await deleteLocalMedia(uri);
+        removedPhotos.current.delete(uri);
+      }
+    })
+      .catch(error => { console.error('Draft save failed', error); Alert.alert('Brouillon', 'Le brouillon ne peut pas être enregistré. Gardez ce formulaire ouvert.'); });
+  }, [db, user?.id, draftUserId, type, incidentDate, commune, village, incidentType, departHta,
+    materialRows, description, isReclamation, reclamationName, reclamationBy, selectedImages, currentStep]);
+
+  useEffect(() => {
+    if (referencesLoading) return;
     if (incidentType !== safeIncidentType) {
       setIncidentType(safeIncidentType);
     }
@@ -150,7 +201,7 @@ export default function CreateIncidentScreen() {
     } else if (departHta && !departHtaOptions.some(option => option.name === departHta)) {
       setDepartHta("");
     }
-  }, [type, incidentType, safeIncidentType, departHta, departHtaOptions]);
+  }, [referencesLoading, type, incidentType, safeIncidentType, departHta, departHtaOptions]);
 
   // Helpers
   const formatDate = (date: Date) => {
@@ -174,47 +225,75 @@ export default function CreateIncidentScreen() {
   };
 
   const pickImage = async () => {
+    if (submitting.current || selectingPhotos.current || draftUserId !== user?.id) return;
     if (selectedImages.length >= MAX_INCIDENT_PHOTOS) {
       Alert.alert("Limite atteinte", `Maximum ${MAX_INCIDENT_PHOTOS} photos par incident.`);
       return;
     }
-    let result = await ImagePicker.launchImageLibraryAsync({
+    selectingPhotos.current = true;
+    const version = formVersion.current;
+    try {
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       selectionLimit: MAX_INCIDENT_PHOTOS - selectedImages.length,
       aspect: [4, 3],
       quality: 0.5,
     });
-    if (!result.canceled) {
-      setSelectedImages(prev => [...prev, ...result.assets.map(asset => asset.uri)].slice(0, MAX_INCIDENT_PHOTOS));
+    if (!result.canceled && version === formVersion.current) {
+      const results = await Promise.allSettled(result.assets.slice(0, MAX_INCIDENT_PHOTOS - selectedImages.length)
+        .map(asset => persistIncidentMedia(asset.uri, createMediaClientId())));
+      const photos = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+      if (version !== formVersion.current || results.some(result => result.status === 'rejected')) {
+        for (const uri of photos) if (!(await isIncidentPhotoReferenced(db, uri))) await deleteLocalMedia(uri);
+        if (version === formVersion.current) Alert.alert('Photos', 'Impossible de conserver les photos. Réessayez.');
+      } else {
+        setSelectedImages(prev => [...prev, ...photos]);
+      }
     }
+    } catch { Alert.alert('Photos', 'Impossible de conserver les photos. Réessayez.'); }
+    finally { selectingPhotos.current = false; }
   };
 
   const takePhoto = async () => {
+    if (submitting.current || selectingPhotos.current || draftUserId !== user?.id) return;
     if (selectedImages.length >= MAX_INCIDENT_PHOTOS) {
       Alert.alert("Limite atteinte", `Maximum ${MAX_INCIDENT_PHOTOS} photos par incident.`);
       return;
     }
+    selectingPhotos.current = true;
+    const version = formVersion.current;
+    try {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert("Permission refusée", "L'accès à la caméra est nécessaire pour joindre une photo.");
       return;
     }
-    let result = await ImagePicker.launchCameraAsync({
+    const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.5,
     });
-    if (!result.canceled) {
-      setSelectedImages(prev => [...prev, result.assets[0].uri]);
+    if (!result.canceled && version === formVersion.current) {
+      const photo = await persistIncidentMedia(result.assets[0].uri, createMediaClientId());
+      if (version !== formVersion.current) {
+        if (!(await isIncidentPhotoReferenced(db, photo))) await deleteLocalMedia(photo);
+      } else {
+        setSelectedImages(prev => [...prev, photo]);
+      }
     }
+    } catch { Alert.alert('Photos', 'Impossible de conserver la photo. Réessayez.'); }
+    finally { selectingPhotos.current = false; }
   };
 
   const removeImage = (uri: string) => {
+    if (submitting.current || draftUserId !== user?.id) return;
+    removedPhotos.current.add(uri);
     setSelectedImages(prev => prev.filter(item => item !== uri));
   };
 
   const handleSubmit = async () => {
+    if (submitting.current || selectingPhotos.current || draftUserId !== user?.id) return;
     if (!user?.id) {
       Alert.alert("Erreur", "Utilisateur non authentifié.");
       return;
@@ -230,14 +309,8 @@ export default function CreateIncidentScreen() {
       return;
     }
 
-    const normalizedMaterials = normalizeMaterialRows(materialRows);
     if (!commune || !village || !safeIncidentType) {
       Alert.alert("Erreur", "Veuillez remplir tous les champs obligatoires");
-      return;
-    }
-
-    if (normalizedMaterials === null) {
-      Alert.alert("Matériel invalide", "Chaque ligne de matériel doit avoir un nom et une quantité positive.");
       return;
     }
 
@@ -247,12 +320,15 @@ export default function CreateIncidentScreen() {
     }
 
     try {
+      submitting.current = true;
       setIsSubmitting(true);
+      const version = formVersion.current;
       const location = gpsLocation || await captureLocation();
-      const clientId = createClientId();
-      const equipmentSummary = buildEquipmentSummary(normalizedMaterials);
-      let localIncidentId: number | null = null;
-      let mediaPreparationFailed = false;
+      await draftSaveQueue.current;
+      if (version !== formVersion.current) return;
+      const clientId = draftClientId.current;
+
+
 
       const incidentData = {
         client_id: clientId,
@@ -263,7 +339,7 @@ export default function CreateIncidentScreen() {
         incident_type: safeIncidentType,
         depart_hta: type === 'MT' ? departHta : null,
         commune_id: commune,
-        equipment_used: equipmentSummary,
+        equipment_used: '',
         description: description.trim() || null,
         reclamation: isReclamation ? 1 : 0,
         reclamation_name: reclamationName || null,
@@ -272,13 +348,15 @@ export default function CreateIncidentScreen() {
         latitude: location.latitude,
         longitude: location.longitude,
         gps_accuracy: location.accuracy,
-        media_urls: [],
+        media_urls: selectedImages,
         created_at: new Date().toISOString(),
         synced: 0
       };
 
-      await db.withTransactionAsync(async () => {
-        const result = await db.runAsync(
+      await db.withExclusiveTransactionAsync(async (txn) => {
+        const saved = await txn.getFirstAsync<{ id: number }>('SELECT id FROM incidents WHERE client_id = ? AND created_by = ?', [clientId, user.id]);
+        if (saved) return; // Restart after a committed save must not create a duplicate.
+        const result = await txn.runAsync(
           `INSERT INTO incidents (
             client_id, type, date, village, status, incident_type, depart_hta, commune_id, equipment_used,
             description, reclamation, reclamation_name, reclamation_by, created_by,
@@ -308,50 +386,27 @@ export default function CreateIncidentScreen() {
           ]
         );
 
-        await enqueueCreateIncident(db, result.lastInsertRowId, clientId);
-        if (normalizedMaterials.length > 0) {
-          await insertIncidentMaterials(db, result.lastInsertRowId, normalizedMaterials);
-          await enqueueSyncMaterials(db, result.lastInsertRowId);
+        await enqueueCreateIncident(txn, result.lastInsertRowId, clientId);
+        // Preserve material text from older drafts for completion at closure.
+        await txn.runAsync('UPDATE incidents SET material_draft = ? WHERE id = ?',
+          [JSON.stringify(materialRows), result.lastInsertRowId]);
+        for (const [index, uri] of selectedImages.entries()) {
+          await enqueueMediaUpload(txn, result.lastInsertRowId, uri, `${clientId}-photo-${index}`);
         }
-        localIncidentId = result.lastInsertRowId;
       });
 
-      if (selectedImages.length > 0 && localIncidentId !== null) {
-        const incidentId = localIncidentId;
-        try {
-          const localPhotos: { clientMediaId: string; localUri: string }[] = [];
-          for (const uri of selectedImages) {
-            const clientMediaId = createMediaClientId();
-            localPhotos.push({
-              clientMediaId,
-              localUri: await persistIncidentMedia(uri, clientMediaId),
-            });
-          }
-
-          await db.withTransactionAsync(async () => {
-            await db.runAsync(
-              'UPDATE incidents SET media_urls = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-              [JSON.stringify(localPhotos.map(photo => photo.localUri)), incidentId]
-            );
-            for (const photo of localPhotos) {
-              await enqueueMediaUpload(db, incidentId, photo.localUri, photo.clientMediaId);
-            }
-          });
-        } catch (mediaError) {
-          mediaPreparationFailed = true;
-          console.error(mediaError);
-        }
-      }
-
-      Alert.alert(
-        "Succès",
-        mediaPreparationFailed
-          ? "Incident enregistré localement. Certaines photos n'ont pas pu être préparées."
-          : "Incident enregistré localement"
-      );
+      Alert.alert("Succès", "Incident enregistré localement");
 
       // Trigger sync
-      syncPendingItems({ reason: 'post-create' });
+      void syncPendingItems({ reason: 'post-create' }).catch(error => console.warn('Incident saved; sync will retry', error));
+
+      draftSaved.current = true;
+      await draftSaveQueue.current;
+      await clearIncidentDraft(db, user.id).catch(error => {
+        console.error('Saved incident draft cleanup failed', error);
+        Alert.alert('Incident enregistré', 'Le brouillon ne peut pas être effacé. Ne renvoyez pas cet incident.');
+      });
+      setDraftEpoch(epoch => epoch + 1);
 
       router.replace('/(tabs)/home');
     } catch (error) {
@@ -359,9 +414,10 @@ export default function CreateIncidentScreen() {
       if (error instanceof Error && error.message === 'LOCATION_PERMISSION_DENIED') {
         Alert.alert("Localisation requise", "Activez la localisation GPS pour enregistrer l'incident.");
       } else {
-        Alert.alert("Erreur", "Impossible d'enregistrer l'incident");
+        Alert.alert("Erreur", error instanceof Error ? error.message : "Impossible d'enregistrer l'incident");
       }
     } finally {
+      submitting.current = false;
       setIsSubmitting(false);
     }
   };
@@ -378,10 +434,11 @@ export default function CreateIncidentScreen() {
         throw new Error("LOCATION_PERMISSION_DENIED");
       }
 
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-        mayShowUserSettingsDialog: true,
-      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const position = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High, mayShowUserSettingsDialog: true }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('GPS indisponible après 15 secondes. Votre brouillon est conservé. Réessayez dehors.')), 15_000); }),
+      ]).finally(() => { if (timer) clearTimeout(timer); });
 
       const nextLocation = {
         latitude: position.coords.latitude,
@@ -401,18 +458,6 @@ export default function CreateIncidentScreen() {
 
   const createMediaClientId = () => {
     return `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  };
-
-  const addMaterialRow = () => {
-    setMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
-  };
-
-  const removeMaterialRow = (id: string) => {
-    setMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
-  };
-
-  const updateMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
-    setMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
   };
 
   const handleTypeChange = (nextType: "BT" | "MT") => {
@@ -629,7 +674,7 @@ export default function CreateIncidentScreen() {
           <View style={{ marginBottom: 24 }}>
             <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Position GPS</Text>
             <TouchableOpacity
-              onPress={captureLocation}
+              onPress={() => { void captureLocation().catch(error => Alert.alert('Localisation', error instanceof Error ? error.message : 'GPS indisponible.')); }}
               disabled={isCapturingLocation}
               style={{
                 backgroundColor: gpsLocation ? '#F0FDF4' : '#FFFFFF',
@@ -730,87 +775,9 @@ export default function CreateIncidentScreen() {
           )}
 
           <View style={{ marginBottom: 24 }}>
-            <Text style={{ color: '#6B7280', marginBottom: 8, fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1.5 }}>Matériel utilisé</Text>
-            <Text style={{ color: '#6B7280', fontWeight: '600', fontSize: 12, marginBottom: 10 }}>
-              Optionnel à l&apos;ouverture. Obligatoire à la clôture.
+            <Text style={{ color: '#6B7280', fontSize: 13, lineHeight: 20 }}>
+              Le matériel utilisé sera renseigné à la clôture.
             </Text>
-            <View style={{ gap: 10 }}>
-              {materialRows.map((row, index) => (
-                <View key={row.id} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                  <TextInput
-                    style={{
-                      flex: 1,
-                      backgroundColor: '#FFFFFF',
-                      borderRadius: 8,
-                      padding: 14,
-                      color: '#111827',
-                      fontSize: 16,
-                      fontWeight: '600',
-                      borderWidth: 1,
-                      borderColor: '#D1D5DB',
-                    }}
-                    value={row.materialName}
-                    onChangeText={(value) => updateMaterialRow(row.id, { materialName: value })}
-                    placeholder={index === 0 ? "Matériel" : "Autre matériel"}
-                    placeholderTextColor="#9CA3AF"
-                  />
-                  <TextInput
-                    style={{
-                      width: 92,
-                      backgroundColor: '#FFFFFF',
-                      borderRadius: 8,
-                      padding: 14,
-                      color: '#111827',
-                      fontSize: 16,
-                      fontWeight: '800',
-                      borderWidth: 1,
-                      borderColor: '#D1D5DB',
-                      textAlign: 'center',
-                    }}
-                    value={row.quantity}
-                    onChangeText={(value) => updateMaterialRow(row.id, { quantity: value })}
-                    placeholder="Qté"
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="decimal-pad"
-                  />
-                  {materialRows.length > 1 ? (
-                    <TouchableOpacity
-                      onPress={() => removeMaterialRow(row.id)}
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: '#FCA5A5',
-                        backgroundColor: '#FEF2F2',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Ionicons name="trash-outline" size={18} color="#991B1B" />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              ))}
-              <TouchableOpacity
-                onPress={addMaterialRow}
-                style={{
-                  alignSelf: 'flex-start',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 8,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 8,
-                  backgroundColor: '#FFFFFF',
-                  borderWidth: 1,
-                  borderColor: '#D1D5DB',
-                }}
-              >
-                <Ionicons name="add" size={18} color="#111827" />
-                <Text style={{ color: '#111827', fontWeight: '900' }}>Ajouter un matériel</Text>
-              </TouchableOpacity>
-            </View>
           </View>
 
           <View style={{ marginBottom: 24 }}>
@@ -994,7 +961,7 @@ export default function CreateIncidentScreen() {
             { l: 'COMMUNE', v: communes.find(c => c.remote_id === commune)?.name || commune },
             { l: 'INCIDENT', v: safeIncidentType },
             ...(type === 'MT' ? [{ l: 'DÉPART HTA', v: departHta || 'REQUIS' }] : []),
-            { l: 'MATÉRIEL', v: buildEquipmentSummary(normalizeMaterialRows(materialRows) || []) || 'À LA CLÔTURE' },
+            { l: 'MATÉRIEL', v: 'À LA CLÔTURE' },
             { l: 'GPS', v: gpsLocation ? 'CAPTURÉE' : 'REQUIS' },
             { l: 'PHOTOS', v: selectedImages.length > 0 ? `${selectedImages.length}` : 'ABSENTES' }
           ].map((item, i) => (

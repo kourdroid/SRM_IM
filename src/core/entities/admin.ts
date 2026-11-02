@@ -19,12 +19,14 @@ export const AdminIncidentUpdateSchema = z.object({
 
 export const AdminIncidentClosureSchema = z.object({
     id: z.string().uuid(),
+    no_material_used: z.boolean().default(false),
     materials: z.array(z.object({
         client_material_id: z.string().trim().min(1),
         material_name: z.string().trim().min(1).max(160),
         quantity: z.number().positive(),
-    })).min(1),
-});
+    })),
+}).refine(value => value.no_material_used ? value.materials.length === 0 : value.materials.length > 0,
+    'Déclarez le matériel utilisé ou confirmez aucun matériel utilisé.');
 
 export const UserRoleUpdateSchema = z.object({
     id: z.string().uuid(),

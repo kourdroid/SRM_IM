@@ -90,7 +90,7 @@ export default function ReportsScreen() {
     if (!report) return;
     setExporting(true);
     try {
-      const downloadUrl = await ReportService.exportServerXlsx(filters);
+      const downloadUrl = await ReportService.exportServerXlsx(report.filters);
       await Linking.openURL(downloadUrl);
     } catch (error) {
       Alert.alert('Export serveur', error instanceof Error ? error.message : 'Export impossible.');

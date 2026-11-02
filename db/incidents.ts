@@ -13,6 +13,8 @@ export interface IncidentRow {
     depart_hta: string | null;
     commune_id: string;
     equipment_used: string;
+    no_material_used: number;
+    material_draft: string;
     description: string | null;
     reclamation: number;
     reclamation_name: string | null;
@@ -168,6 +170,21 @@ export async function markIncidentSyncedWithRemoteId(
     );
 }
 
+/** The remote row existing does not mean every queued change is confirmed. */
+export async function refreshIncidentSyncState(db: SQLiteDatabase, localId: number): Promise<void> {
+    await db.runAsync(`UPDATE incidents SET
+        synced = CASE WHEN EXISTS (SELECT 1 FROM sync_operations so
+            WHERE so.local_incident_id = incidents.id AND so.status != 'done') THEN 0 ELSE 1 END,
+        sync_status = CASE
+            WHEN EXISTS (SELECT 1 FROM sync_operations so WHERE so.local_incident_id = incidents.id
+                AND so.status = 'failed' AND so.is_terminal = 1) THEN 'failed'
+            WHEN EXISTS (SELECT 1 FROM sync_operations so WHERE so.local_incident_id = incidents.id
+                AND so.status != 'done') THEN 'pending' ELSE 'synced' END,
+        sync_error = (SELECT last_error FROM sync_operations so WHERE so.local_incident_id = incidents.id
+            AND so.status = 'failed' ORDER BY so.id DESC LIMIT 1)
+        WHERE id = ?`, [localId]);
+}
+
 export async function markIncidentSyncing(
     db: SQLiteDatabase,
     localId: number
@@ -251,6 +268,7 @@ export async function upsertIncidentsFromServer(
         depart_hta?: string | null;
         commune_id: string | null;
         equipment_used: string;
+        no_material_used?: boolean;
         description?: string;
         reclamation: boolean;
         reclamation_name?: string;
@@ -273,12 +291,25 @@ export async function upsertIncidentsFromServer(
         const mediaUrls = JSON.stringify(inc.media_urls || []);
         const existing = await db.getFirstAsync<{ id: number; media_urls: string | null; sync_status: string | null }>(
             `SELECT id, media_urls, sync_status FROM incidents
-             WHERE remote_id = ? OR (client_id IS NOT NULL AND client_id = ?)`,
-            [inc.id, safeClientId]
+             WHERE (remote_id = ? OR (client_id IS NOT NULL AND client_id = ?)) AND created_by = ?`,
+            [inc.id, safeClientId, inc.created_by]
         );
 
         if (existing) {
-            const shouldKeepLocalMedia = existing.media_urls?.includes('file:') === true;
+            const pending = await db.getAllAsync<{ operation_type: string; payload_json: string }>(
+                `SELECT operation_type, payload_json FROM sync_operations WHERE local_incident_id = ? AND status != 'done'`,
+                [existing.id]
+            );
+            const pendingLocalUris = new Set(pending.filter(op => op.operation_type === 'upload_media' || op.operation_type === 'attach_media')
+                .flatMap(op => {
+                    try { const value = JSON.parse(op.payload_json).localUri; return typeof value === 'string' ? [value] : []; }
+                    catch { return []; }
+                }));
+            let localUrls: string[] = [];
+            try { const value = JSON.parse(existing.media_urls || '[]'); if (Array.isArray(value)) localUrls = value; } catch { /* malformed legacy media */ }
+            const mergedMedia = JSON.stringify(Array.from(new Set([
+                ...(inc.media_urls || []), ...localUrls.filter(url => pendingLocalUris.has(url)),
+            ])));
             await db.runAsync(
                 `UPDATE incidents SET
                     client_id = COALESCE(client_id, ?),
@@ -286,11 +317,18 @@ export async function upsertIncidentsFromServer(
                     type = ?,
                     date = ?,
                     village = ?,
-                    status = ?,
+                    status = CASE WHEN EXISTS (SELECT 1 FROM sync_operations so
+                        WHERE so.local_incident_id = incidents.id AND so.operation_type = 'update_incident_status'
+                        AND so.status != 'done') THEN status ELSE ? END,
                     incident_type = ?,
                     depart_hta = ?,
                     commune_id = ?,
-                    equipment_used = ?,
+                    equipment_used = CASE WHEN EXISTS (SELECT 1 FROM sync_operations so
+                        WHERE so.local_incident_id = incidents.id AND so.operation_type IN ('sync_materials', 'update_incident_status')
+                        AND so.status != 'done') THEN equipment_used ELSE ? END,
+                    no_material_used = CASE WHEN EXISTS (SELECT 1 FROM sync_operations so
+                        WHERE so.local_incident_id = incidents.id AND so.operation_type = 'update_incident_status'
+                        AND so.status != 'done') THEN no_material_used ELSE ? END,
                     description = ?,
                     reclamation = ?,
                     reclamation_name = ?,
@@ -316,29 +354,31 @@ export async function upsertIncidentsFromServer(
                     inc.depart_hta || null,
                     safeCommuneId,
                     inc.equipment_used || '',
+                    inc.no_material_used ? 1 : 0,
                     inc.description || null,
                     inc.reclamation ? 1 : 0,
                     inc.reclamation_name || null,
                     inc.created_by || 'system',
-                    inc.latitude || null,
-                    inc.longitude || null,
+                    inc.latitude ?? null,
+                    inc.longitude ?? null,
                     inc.gps_accuracy ?? null,
-                    shouldKeepLocalMedia ? existing.media_urls : mediaUrls,
+                    mergedMedia,
                     inc.archived_at || null,
                     inc.created_at || new Date().toISOString(),
                     inc.updated_at || inc.created_at || new Date().toISOString(),
                     existing.id,
                 ]
             );
+            await refreshIncidentSyncState(db, existing.id);
             continue;
         }
 
         await db.runAsync(
             `INSERT INTO incidents (
         client_id, remote_id, type, date, village, status, incident_type, depart_hta, commune_id,
-        equipment_used, description, reclamation, reclamation_name,
+        equipment_used, no_material_used, description, reclamation, reclamation_name,
         created_by, latitude, longitude, gps_accuracy, media_urls, archived_at, sync_status, synced, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 1, ?, ?)
       `,
             [
                 safeClientId,
@@ -351,6 +391,7 @@ export async function upsertIncidentsFromServer(
                 inc.depart_hta || null,
                 safeCommuneId,
                 inc.equipment_used || '',
+                inc.no_material_used ? 1 : 0,
                 inc.description || null,
                 inc.reclamation ? 1 : 0,
                 inc.reclamation_name || null,

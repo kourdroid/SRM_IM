@@ -1,6 +1,6 @@
 import { Session, User } from '@supabase/supabase-js';
-import * as SecureStore from 'expo-secure-store';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { authStorage } from '../lib/authStorage';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { isOperationTimeoutError, withTimeout } from '../lib/asyncTimeout';
 import {
   handleInvalidSupabaseSession,
@@ -56,6 +56,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [startupIssue, setStartupIssue] = useState<StartupIssue>(null);
   const [role, setRole] = useState<UserRole | null>(null);
   const [approvalStatus, setApprovalStatus] = useState<UserApprovalStatus | null>(null);
+  const authVersion = useRef(0);
 
   const clearAuthState = useCallback(() => {
     setSession(null);
@@ -64,9 +65,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setApprovalStatus(null);
   }, []);
 
-  const checkUserRole = useCallback(async (userId: string): Promise<boolean> => {
-    const cachedRole = await getCachedRole(userId);
-    const cachedProfileState = await getCachedProfileState(userId);
+  const checkUserRole = useCallback(async (userId: string, version: number): Promise<boolean> => {
+    const isCurrent = () => authVersion.current === version;
+    const [cachedRole, cachedProfileState] = await Promise.all([getCachedRole(userId), getCachedProfileState(userId)]);
+    if (!isCurrent()) return false;
     if (cachedProfileState) {
       setRole(cachedProfileState.role);
       setApprovalStatus(cachedProfileState.approvalStatus);
@@ -77,6 +79,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     try {
       const hasNetwork = await withTimeout(hasRemoteNetwork(), NETWORK_CHECK_TIMEOUT_MS, 'NETWORK_TIMEOUT');
+      if (!isCurrent()) return false;
       if (!hasNetwork) {
         return Boolean(cachedProfileState || cachedRole);
       }
@@ -92,9 +95,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         PROFILE_FETCH_TIMEOUT_MS,
         'PROFILE_TIMEOUT'
       );
+      if (!isCurrent()) return false;
 
       if (error) {
         if (await handleInvalidSupabaseSession(error)) {
+          if (!isCurrent()) return false;
           clearAuthState();
           setStartupIssue('INVALID_SESSION');
           return false;
@@ -114,7 +119,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
       return true;
     } catch (error) {
+      if (!isCurrent()) return false;
       if (await handleInvalidSupabaseSession(error)) {
+        if (!isCurrent()) return false;
         clearAuthState();
         setStartupIssue('INVALID_SESSION');
         return false;
@@ -136,17 +143,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [clearAuthState]);
 
   const bootstrapAuth = useCallback(async () => {
+    const version = ++authVersion.current;
     setLoading(true);
     setStartupIssue(null);
     try {
       const {
         data: { session: restoredSession },
       } = await withTimeout(supabase.auth.getSession(), SESSION_RESTORE_TIMEOUT_MS, 'SESSION_TIMEOUT');
+      if (authVersion.current !== version) return;
       setSession(restoredSession);
       setUser(restoredSession?.user ?? null);
       if (restoredSession?.user) {
-        const resolved = await checkUserRole(restoredSession.user.id);
-        if (!resolved) {
+        const resolved = await checkUserRole(restoredSession.user.id, version);
+        if (!resolved && authVersion.current === version) {
           setStartupIssue((current) => current || 'PROFILE_UNAVAILABLE');
         }
       } else {
@@ -154,7 +163,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setApprovalStatus(null);
       }
     } catch (error) {
+      if (authVersion.current !== version) return;
       if (await handleInvalidSupabaseSession(error)) {
+        if (authVersion.current !== version) return;
         clearAuthState();
         setStartupIssue('INVALID_SESSION');
       } else if (isOperationTimeoutError(error, 'SESSION_TIMEOUT')) {
@@ -169,29 +180,41 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setStartupIssue('SESSION_TIMEOUT');
       }
     } finally {
-      setLoading(false);
+      if (authVersion.current === version) setLoading(false);
     }
   }, [checkUserRole, clearAuthState]);
 
   useEffect(() => {
     void bootstrapAuth();
+    let profileTimer: ReturnType<typeof setTimeout> | undefined;
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
+        const version = ++authVersion.current;
+        if (profileTimer) clearTimeout(profileTimer);
         setStartupIssue(null);
         setSession(session);
         setUser(session?.user ?? null);
+        setRole(null);
+        setApprovalStatus(null);
         if (session?.user) {
-          await checkUserRole(session.user.id);
+          setLoading(true);
+          // Release the SDK auth lock before a profile query reads the session.
+          profileTimer = setTimeout(() => {
+            if (authVersion.current !== version) return;
+            void checkUserRole(session.user.id, version).finally(() => {
+              if (authVersion.current === version) setLoading(false);
+            });
+          }, 0);
         } else {
-          setRole(null);
-          setApprovalStatus(null);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
     return () => {
+      authVersion.current += 1;
+      if (profileTimer) clearTimeout(profileTimer);
       authListener.subscription.unsubscribe();
     };
   }, [bootstrapAuth, checkUserRole]);
@@ -226,7 +249,7 @@ function parseApprovalStatus(value: unknown): UserApprovalStatus {
 }
 
 async function getCachedRole(userId: string): Promise<UserRole | null> {
-  const value = await SecureStore.getItemAsync(buildProfileCacheKey('role', userId)).catch(() => null);
+  const value = await authStorage.getItemAsync(buildProfileCacheKey('role', userId)).catch(() => null);
   if (value === 'admin' || value === 'director' || value === 'field') {
     return value;
   }
@@ -234,11 +257,11 @@ async function getCachedRole(userId: string): Promise<UserRole | null> {
 }
 
 async function setCachedRole(userId: string, nextRole: UserRole): Promise<void> {
-  await SecureStore.setItemAsync(buildProfileCacheKey('role', userId), nextRole).catch(() => undefined);
+  await authStorage.setItemAsync(buildProfileCacheKey('role', userId), nextRole).catch(() => undefined);
 }
 
 async function getCachedProfileState(userId: string): Promise<CachedUserProfileState | null> {
-  const value = await SecureStore.getItemAsync(buildProfileCacheKey('profile', userId)).catch(() => null);
+  const value = await authStorage.getItemAsync(buildProfileCacheKey('profile', userId)).catch(() => null);
   if (!value) return null;
 
   try {
@@ -256,7 +279,7 @@ async function setCachedProfileState(
   profileState: CachedUserProfileState
 ): Promise<void> {
   await Promise.all([
-    SecureStore.setItemAsync(buildProfileCacheKey('profile', userId), JSON.stringify(profileState)),
+    authStorage.setItemAsync(buildProfileCacheKey('profile', userId), JSON.stringify(profileState)),
     setCachedRole(userId, profileState.role),
   ]).catch(() => undefined);
 }

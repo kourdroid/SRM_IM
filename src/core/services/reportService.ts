@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { reportDateRange } from '../../../supabase/functions/_shared/reportDates';
 import { formatMaterialsSummary } from '@/lib/materials';
 
 export interface ReportFilters {
@@ -362,12 +363,11 @@ async function fetchReportEvents(incidentIds: string[]): Promise<ReportEvent[]> 
 }
 
 function buildRpcParams(filters: ReportFilters): RpcParams {
-  const end = new Date(`${filters.endDate}T00:00:00.000Z`);
-  end.setUTCDate(end.getUTCDate() + 1);
+  const range = reportDateRange(filters.startDate, filters.endDate);
 
   return {
-    p_start_date: new Date(`${filters.startDate}T00:00:00.000Z`).toISOString(),
-    p_end_date: end.toISOString(),
+    p_start_date: range.start,
+    p_end_date: range.end,
     p_commune_id: filters.communeId || null,
     p_agent_id: filters.agentId || null,
     p_type: filters.type || null,

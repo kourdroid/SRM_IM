@@ -76,7 +76,8 @@ export const AdminService = {
                 .not('closed_at', 'is', null)
                 .gte('created_at', thirtyDaysAgo.toISOString());
 
-            if (fallbackError || !incidents || incidents.length === 0) {
+            if (fallbackError) throw new Error(fallbackError.message);
+            if (!incidents || incidents.length === 0) {
                 return { avgDays: 0, maxDays: 0 };
             }
 
@@ -90,8 +91,8 @@ export const AdminService = {
             const maxDays = Math.max(...durations);
 
             return { avgDays, maxDays };
-        } catch {
-            return { avgDays: 0, maxDays: 0 };
+        } catch (error) {
+            throw new Error(`Resolution statistics unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 };

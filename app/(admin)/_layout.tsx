@@ -37,6 +37,7 @@ export default function AdminLayout() {
       <Tabs.Screen name="depart-hta" options={{ title: 'Départs HTA', href: null }} />
       <Tabs.Screen name="users" options={{ title: 'Users', href: null }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="notifications" options={{ title: 'Notifications', href: null }} />
     </Tabs>
   );
 }

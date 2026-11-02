@@ -2,6 +2,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { initDatabase } from '@/db';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import SyncCoordinator from '@/components/SyncCoordinator';
+import AdminNotificationCoordinator from '@/components/AdminNotificationCoordinator';
 import { Sentry } from '@/lib/monitoring';
 import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
 import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
@@ -46,6 +47,7 @@ function RootLayout() {
         <AuthProvider>
           <SyncCoordinator />
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <AdminNotificationCoordinator />
             <Stack screenOptions={{ contentStyle: { backgroundColor: '#FAFAFA' } }}>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="(auth)" options={{ headerShown: false }} />

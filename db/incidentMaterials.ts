@@ -55,3 +55,27 @@ export async function markIncidentMaterialsSynced(
     [remoteIncidentId, localIncidentId]
   );
 }
+
+export async function upsertIncidentMaterialsFromServer(db: SQLiteDatabase, materials: {
+  incident_id: string; client_material_id: string; material_name: string; quantity: number;
+}[]): Promise<void> {
+  for (const material of materials) {
+    const incident = await db.getFirstAsync<{ id: number }>('SELECT id FROM incidents WHERE remote_id = ?', [material.incident_id]);
+    if (!incident) continue;
+    const pending = await db.getFirstAsync<{ id: number }>(`SELECT id FROM sync_operations
+      WHERE local_incident_id = ? AND operation_type = 'sync_materials' AND status != 'done'`, [incident.id]);
+    if (pending) continue;
+    const existing = await db.getFirstAsync<{ local_incident_id: number }>(
+      'SELECT local_incident_id FROM incident_materials WHERE client_material_id = ?', [material.client_material_id]);
+    if (existing && existing.local_incident_id !== incident.id) throw new Error('Conflicting material identity; local records preserved');
+    await db.runAsync(`INSERT INTO incident_materials
+      (local_incident_id,remote_incident_id,client_material_id,material_name,quantity)
+      SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM sync_operations
+        WHERE local_incident_id = ? AND operation_type = 'sync_materials' AND status != 'done')
+      ON CONFLICT(client_material_id) DO UPDATE SET
+      remote_incident_id=excluded.remote_incident_id, material_name=excluded.material_name,
+      quantity=excluded.quantity, updated_at=CURRENT_TIMESTAMP
+      WHERE incident_materials.local_incident_id = excluded.local_incident_id`,
+    [incident.id,material.incident_id,material.client_material_id,material.material_name,material.quantity,incident.id]);
+  }
+}

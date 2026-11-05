@@ -30,6 +30,9 @@ export default function DirectorLayout() {
     >
       <Tabs.Screen name="dashboard" options={{ title: 'Accueil' }} />
       <Tabs.Screen name="incidents" options={{ title: 'Incidents' }} />
+      <Tabs.Screen name="reports" options={{ title: 'Rapports' }} />
+      <Tabs.Screen name="profile" options={{ title: 'Paramètres' }} />
+      <Tabs.Screen name="notifications" options={{ title: 'Notifications', href: null }} />
     </Tabs>
   );
 }

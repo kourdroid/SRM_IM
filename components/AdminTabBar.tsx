@@ -5,9 +5,9 @@ export default function AdminTabBar(props: BottomTabBarProps) {
   return (
     <SrmTabBar
       {...props}
-      hiddenRoutes={['users', 'communes']}
+      hiddenRoutes={['users', 'communes', 'notifications']}
       activeRouteFor={(routeName, currentRouteName) =>
-        routeName === 'profile' && (currentRouteName === 'users' || currentRouteName === 'communes')
+        routeName === 'profile' && ['users', 'communes', 'notifications'].includes(currentRouteName)
       }
       items={{
         dashboard: {

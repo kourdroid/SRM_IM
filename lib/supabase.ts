@@ -1,18 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import * as Network from 'expo-network';
-import * as SecureStore from 'expo-secure-store';
+import { authStorage } from './authStorage';
 import { AppState } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
 const ExpoSecureStoreAdapter = {
   getItem: (key: string) => {
-    return SecureStore.getItemAsync(key);
+    return authStorage.getItemAsync(key);
   },
   setItem: (key: string, value: string) => {
-    return SecureStore.setItemAsync(key, value);
+    return authStorage.setItemAsync(key, value);
   },
   removeItem: (key: string) => {
-    return SecureStore.deleteItemAsync(key);
+    return authStorage.deleteItemAsync(key);
   },
 };
 
@@ -31,6 +31,7 @@ export function isSupabaseNetworkError(error: unknown): boolean {
     message.includes('authretryablefetcherror') ||
     message.includes('failed to fetch') ||
     message.includes('networkerror')
+    || error.name === 'AbortError'
   );
 }
 
@@ -73,14 +74,22 @@ export async function hasRemoteNetwork(): Promise<boolean> {
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
-const supabaseFetch: typeof fetch = async (input, init) => {
+export const supabaseFetch: typeof fetch = async (input, init) => {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (init?.signal?.aborted) cancel();
+  else init?.signal?.addEventListener('abort', cancel, { once: true });
+  const timeout = setTimeout(cancel, 20_000);
   try {
-    return await nativeFetch(input, init);
+    return await nativeFetch(input, { ...init, signal: controller.signal });
   } catch (error) {
     if (isSupabaseNetworkError(error)) {
       throw new Error(`Network request failed while reaching Supabase (${new URL(supabaseUrl).host}).`);
     }
     throw error;
+  } finally {
+    clearTimeout(timeout);
+    init?.signal?.removeEventListener('abort', cancel);
   }
 };
 
@@ -97,13 +106,20 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 export async function clearLocalSupabaseSession(): Promise<void> {
+  try {
+    const notifications = await import('./adminNotifications');
+    notifications.setActiveAdminNotificationUser(null);
+    await notifications.unregisterAdminPushNotifications();
+  } catch {
+    // Offline logout still clears locally; remote alerts can persist until token/session removal succeeds.
+  }
   supabase.auth.stopAutoRefresh();
 
   try {
     await supabase.auth.signOut({ scope: 'local' });
   } catch {
     const projectRef = new URL(supabaseUrl).host.split('.')[0];
-    await SecureStore.deleteItemAsync(`sb-${projectRef}-auth-token`).catch(() => undefined);
+    await authStorage.deleteItemAsync(`sb-${projectRef}-auth-token`).catch(() => undefined);
   }
 }
 

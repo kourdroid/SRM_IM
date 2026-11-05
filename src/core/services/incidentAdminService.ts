@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
-import { buildEquipmentSummary, formatMaterialsSummary, type IncidentMaterialInput } from '@/lib/materials';
+import { formatMaterialsSummary, type IncidentMaterialInput } from '@/lib/materials';
 import * as Network from 'expo-network';
+import { z } from 'zod';
 import {
     AdminIncidentClosureSchema,
     AdminIncidentUpdateSchema,
@@ -21,6 +22,7 @@ export interface Incident {
     commune_id: string;
     commune_name?: string;
     equipment_used: string;
+    no_material_used?: boolean;
     description: string;
     reclamation: boolean;
     reclamation_name?: string;
@@ -45,6 +47,7 @@ export interface IncidentMaterialSummary {
 }
 
 export interface IncidentFilters {
+    incidentId?: string;
     status?: 'open' | 'closed' | 'all';
     type?: 'BT' | 'MT' | 'all';
     communeId?: string;
@@ -55,6 +58,11 @@ export interface IncidentFilters {
     agentId?: string;
     hasGps?: boolean;
     hasMedia?: boolean;
+}
+
+export interface IncidentCursor {
+    createdAt: string;
+    id: string;
 }
 
 type IncidentListRecord = {
@@ -69,6 +77,7 @@ type IncidentListRecord = {
     commune_id: string;
     communes?: { name: string | null } | { name: string | null }[] | null;
     equipment_used: string | null;
+    no_material_used: boolean;
     description: string | null;
     reclamation: boolean | number | null;
     reclamation_name: string | null;
@@ -95,6 +104,7 @@ const INCIDENT_LIST_COLUMNS = `
     depart_hta,
     commune_id,
     equipment_used,
+    no_material_used,
     description,
     reclamation,
     reclamation_name,
@@ -115,18 +125,22 @@ export const IncidentAdminService = {
     /**
      * Cursor-based fetching for infinite scrolling, supporting advanced filtering and search.
      */
-    async getIncidents(limit = 20, lastCreatedAt?: string, filters?: IncidentFilters): Promise<Incident[]> {
+    async getIncidents(limit = 20, cursor?: string | IncidentCursor, filters?: IncidentFilters): Promise<Incident[]> {
         let query = supabase
             .from('incidents')
             .select(INCIDENT_LIST_COLUMNS)
             .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
             .limit(limit);
 
-        if (lastCreatedAt) {
-            query = query.lt('created_at', lastCreatedAt);
+        if (typeof cursor === 'string') {
+            query = query.lt('created_at', cursor);
+        } else if (cursor) {
+            query = query.or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`);
         }
 
         if (filters) {
+            if (filters.incidentId) query = query.eq('id', filters.incidentId);
             if (filters.status && filters.status !== 'all') {
                 query = query.eq('status', filters.status);
             }
@@ -182,12 +196,11 @@ export const IncidentAdminService = {
             let profileMap = new Map<string, string>();
             if (userIds.length > 0) {
                 const { data: profiles } = await supabase
-                    .from('user_profiles')
-                    .select('id, name')
+                    .rpc('get_supervision_profiles')
                     .in('id', userIds);
                 
                 if (profiles) {
-                    profileMap = new Map(profiles.map(p => [p.id, p.name]));
+                    profileMap = new Map(profiles.map((p: { id: string; name: string | null }) => [p.id, p.name || 'Utilisateur inconnu']));
                 }
             }
 
@@ -203,6 +216,7 @@ export const IncidentAdminService = {
                 commune_id: item.commune_id,
                 commune_name: getEmbeddedCommuneName(item.communes),
                 equipment_used: item.equipment_used || '',
+                no_material_used: item.no_material_used,
                 description: item.description || '',
                 reclamation: item.reclamation === true || item.reclamation === 1,
                 reclamation_name: item.reclamation_name || undefined,
@@ -246,12 +260,12 @@ export const IncidentAdminService = {
         await assertOnline();
 
         // 3. Online mutate
-        const { error } = await supabase
+        const { data, error } = await supabase
             .from('incidents')
-            .update({ status: validPayload.status })
-            .eq('id', validPayload.id);
+            .update({ status: validPayload.status, ...(validPayload.status === 'open' ? { no_material_used: false } : {}) })
+            .eq('id', validPayload.id).select('id').single();
 
-        if (error) throw new Error(`Mutation failed: ${error.message}`);
+        if (error || !data) throw new Error(`Mutation failed: ${error?.message || 'Incident absent ou accès refusé'}`);
     },
 
     async closeIncidentWithMaterials(closurePayload: AdminIncidentClosure): Promise<void> {
@@ -265,30 +279,28 @@ export const IncidentAdminService = {
             quantity: material.quantity,
         }));
 
-        const { error: materialsError } = await supabase.rpc('upsert_incident_materials', {
+        const { data, error } = await supabase.rpc('close_incident_with_materials', {
             p_incident_id: validPayload.id,
             p_materials: materials,
+            p_no_material_used: validPayload.no_material_used,
         });
+        if (error || data !== validPayload.id) throw new Error(`Mutation failed: ${error?.message || 'Incident absent ou accès refusé'}`);
+    },
 
-        if (materialsError) {
-            throw new Error(`Material update failed: ${materialsError.message}`);
-        }
+    /** Soft delete: the row is archived server-side and hidden from every list, report and field device. */
+    async archiveIncident(id: string): Promise<void> {
+        const incidentId = z.uuid().parse(id);
 
-        const { error } = await supabase
-            .from('incidents')
-            .update({
-                status: 'closed',
-                equipment_used: buildEquipmentSummary(materials),
-            })
-            .eq('id', validPayload.id);
+        await assertOnline();
 
+        const { error } = await supabase.rpc('archive_incident', { p_incident_id: incidentId });
         if (error) throw new Error(`Mutation failed: ${error.message}`);
     }
 };
 
 async function assertOnline(): Promise<void> {
     const networkState = await Network.getNetworkStateAsync();
-    if (!networkState.isConnected || !networkState.isInternetReachable) {
+    if (networkState.isConnected !== true || networkState.isInternetReachable === false) {
         throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
     }
 }

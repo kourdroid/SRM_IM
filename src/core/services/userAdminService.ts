@@ -72,16 +72,16 @@ export const UserAdminService = {
         const validPayload = UserRoleUpdateSchema.parse(updatePayload);
 
         const networkState = await Network.getNetworkStateAsync();
-        if (!networkState.isConnected || !networkState.isInternetReachable) {
+        if (networkState.isConnected !== true || networkState.isInternetReachable === false) {
             throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
         }
 
-        const { error } = await supabase
+        const { data, error } = await supabase
             .from('user_profiles')
             .update({ role: validPayload.role })
-            .eq('id', validPayload.id);
+            .eq('id', validPayload.id).select('id').single();
 
-        if (error) throw new Error(`Role mutation failed: ${error.message}`);
+        if (error || !data) throw new Error(`Role mutation failed: ${error?.message || 'Utilisateur absent ou accès refusé'}`);
     },
 
     /**
@@ -91,16 +91,16 @@ export const UserAdminService = {
         const validPayload = UserApprovalStatusUpdateSchema.parse(updatePayload);
 
         const networkState = await Network.getNetworkStateAsync();
-        if (!networkState.isConnected || !networkState.isInternetReachable) {
+        if (networkState.isConnected !== true || networkState.isInternetReachable === false) {
             throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
         }
 
-        const { error } = await supabase
+        const { data, error } = await supabase
             .from('user_profiles')
             .update({ approval_status: validPayload.approval_status })
-            .eq('id', validPayload.id);
+            .eq('id', validPayload.id).select('id').single();
 
-        if (error) throw new Error(`Approval mutation failed: ${error.message}`);
+        if (error || !data) throw new Error(`Approval mutation failed: ${error?.message || 'Utilisateur absent ou accès refusé'}`);
     },
 
     /**
@@ -109,7 +109,7 @@ export const UserAdminService = {
      */
     async createUser(email: string, password: string, name: string, role: UserRole): Promise<UserProfile> {
         const networkState = await Network.getNetworkStateAsync();
-        if (!networkState.isConnected || !networkState.isInternetReachable) {
+        if (networkState.isConnected !== true || networkState.isInternetReachable === false) {
             throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
         }
 
@@ -154,7 +154,7 @@ export const UserAdminService = {
      */
     async deleteUser(userId: string): Promise<void> {
         const networkState = await Network.getNetworkStateAsync();
-        if (!networkState.isConnected || !networkState.isInternetReachable) {
+        if (networkState.isConnected !== true || networkState.isInternetReachable === false) {
             throw new Error('NETWORK_OFFLINE: Admin mutations require an active connection.');
         }
 

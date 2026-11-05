@@ -1,8 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { createClient } from '@supabase/supabase-js';
 import { upsertCommunesFromServer } from '../db/communes';
 import {
     getIncidentMaterialsByLocalId,
     markIncidentMaterialsSynced,
+    upsertIncidentMaterialsFromServer,
 } from '../db/incidentMaterials';
 import {
     upsertDepartHtaOptionsFromServer,
@@ -19,12 +21,14 @@ import {
     markIncidentSyncPending,
     markIncidentSyncing,
     resetRetryableIncidentSyncFailures,
+    refreshIncidentSyncState,
     updateIncidentMediaUrls,
     upsertIncidentsFromServer,
     type IncidentRow,
 } from '../db/incidents';
 import {
     enqueueAttachMedia,
+    enqueueStatusUpdate,
     getRunnableSyncOperations,
     markSyncOperationDone,
     markSyncOperationFailed,
@@ -37,12 +41,20 @@ import {
 } from '../db/syncOperations';
 import { getSyncMetadata, setSyncMetadata } from '../db/syncMetadata';
 import { deleteLocalMedia, uploadToSupabase } from './imageUtils';
-import { isSupabaseNetworkError, supabase } from './supabase';
+import { buildEquipmentSummary, NO_MATERIAL_USED_LABEL } from './materials';
+import { isSupabaseNetworkError, supabase, supabaseUrl, supabaseAnonKey, supabaseFetch } from './supabase';
+
+// Runs are serialized. Every remote request in a run uses its original token,
+// never a later account's session.
+let syncClient = supabase;
+let syncAccessToken: string | undefined;
 
 interface RemoteIncident {
     id: string;
+    no_material_used?: boolean;
     client_id?: string | null;
     status?: 'open' | 'closed' | null;
+    equipment_used?: string | null;
     media_urls?: string[] | null;
 }
 
@@ -106,6 +118,7 @@ const INCIDENT_PULL_COLUMNS = [
     'depart_hta',
     'commune_id',
     'equipment_used',
+    'no_material_used',
     'description',
     'reclamation',
     'reclamation_name',
@@ -166,6 +179,15 @@ function mergeSyncOptions(current: SyncOptions, next: SyncOptions): SyncOptions 
 
 async function executeSync(db: SQLiteDatabase, userId?: string, options: SyncOptions = {}): Promise<void> {
     debugLog('Sync: Starting...', options.reason || 'unknown');
+    if (!userId) return;
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session || session.user.id !== userId) return;
+    syncAccessToken = session.access_token;
+    syncClient = createClient(supabaseUrl, supabaseAnonKey, {
+        accessToken: async () => session.access_token,
+        global: { fetch: supabaseFetch },
+    });
 
     try {
         await resetRunningSyncOperations(db);
@@ -176,7 +198,7 @@ async function executeSync(db: SQLiteDatabase, userId?: string, options: SyncOpt
                 debugLog(`Sync: Reset ${resetOps} retryable operation(s), ${resetIncidents} incident status flag(s)`);
             }
         }
-        await recoverMissingMediaUploadOperations(db);
+        await recoverMissingMediaUploadOperations(db, userId);
 
         const invalidCount = await deleteInvalidIncidents(db);
         if (invalidCount > 0) {
@@ -188,7 +210,8 @@ async function executeSync(db: SQLiteDatabase, userId?: string, options: SyncOpt
         const result = await processSyncOperations(
             db,
             options.operationBatchSize ?? 20,
-            options.maxDurationMs ?? DEFAULT_SYNC_BUDGET_MS
+            options.maxDurationMs ?? DEFAULT_SYNC_BUDGET_MS,
+            userId
         );
         if (result.affectedRemoteIncidentIds.length > 0) {
             await pullIncidentsByIds(db, result.affectedRemoteIncidentIds);
@@ -228,7 +251,7 @@ async function pullCommunes(db: SQLiteDatabase, options: SyncOptions): Promise<v
         return;
     }
 
-    const { data, error } = await supabase.from('communes').select('id, name').order('name');
+    const { data, error } = await syncClient.from('communes').select('id, name').order('name');
 
     if (error) {
         if (isSupabaseNetworkError(error)) {
@@ -258,7 +281,7 @@ async function pullIncidentTypeOptions(db: SQLiteDatabase, options: SyncOptions)
         return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await syncClient
         .from('incident_type_options')
         .select('id, network_type, name, active, sort_order, updated_at')
         .eq('active', true)
@@ -302,7 +325,7 @@ async function pullDepartHtaOptions(db: SQLiteDatabase, options: SyncOptions): P
         return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await syncClient
         .from('depart_hta_options')
         .select('id, name, active, sort_order, updated_at')
         .eq('active', true)
@@ -333,22 +356,30 @@ async function pullDepartHtaOptions(db: SQLiteDatabase, options: SyncOptions): P
 }
 
 async function pullIncidents(db: SQLiteDatabase, userId?: string, options: SyncOptions = {}): Promise<void> {
+    if (!userId) return;
     const cursorKey = `incidents:lastPulledAt:${userId || 'all'}`;
     const shouldFullPull = options.forcePull === true;
     const lastPulledAt = shouldFullPull ? null : await getSyncMetadata(db, cursorKey);
     let maxUpdatedAt = lastPulledAt;
-    let offset = 0;
+    let pageCursor: { id: string; updatedAt?: string } | null = null;
     const pulledRemoteIds: string[] = [];
 
     while (true) {
-        let query = supabase
+        let query = syncClient
             .from('incidents')
             .select(INCIDENT_PULL_COLUMNS)
-            .order(lastPulledAt ? 'updated_at' : 'created_at', { ascending: Boolean(lastPulledAt) })
-            .range(offset, offset + INCIDENT_PULL_PAGE_SIZE - 1);
+            .order(lastPulledAt ? 'updated_at' : 'id', { ascending: true });
+
+        if (lastPulledAt) query = query.order('id', { ascending: true });
+        query = query.limit(INCIDENT_PULL_PAGE_SIZE);
 
         if (lastPulledAt) {
             query = query.gte('updated_at', getIncrementalPullLowerBound(lastPulledAt));
+        }
+        if (pageCursor) {
+            query = lastPulledAt
+                ? query.or(`updated_at.gt.${pageCursor.updatedAt},and(updated_at.eq.${pageCursor.updatedAt},id.gt.${pageCursor.id})`)
+                : query.gt('id', pageCursor.id);
         }
 
         if (userId) {
@@ -381,8 +412,14 @@ async function pullIncidents(db: SQLiteDatabase, userId?: string, options: SyncO
         if (data.length < INCIDENT_PULL_PAGE_SIZE) {
             break;
         }
-        offset += INCIDENT_PULL_PAGE_SIZE;
+        const last = incidents[incidents.length - 1];
+        pageCursor = { id: last.id, updatedAt: last.updated_at };
     }
+
+    // Material edits do not necessarily update their parent incident's watermark.
+    const cachedIncidents = await db.getAllAsync<{ remote_id: string }>(
+        'SELECT remote_id FROM incidents WHERE created_by = ? AND remote_id IS NOT NULL', [userId]);
+    await pullIncidentMaterials(db, cachedIncidents.map(incident => incident.remote_id));
 
     if (shouldFullPull && userId) {
         const archivedCount = await archiveStaleSyncedIncidents(db, userId, pulledRemoteIds);
@@ -400,7 +437,7 @@ async function pullIncidentsByIds(db: SQLiteDatabase, remoteIncidentIds: string[
     const uniqueIds = Array.from(new Set(remoteIncidentIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
 
-    const { data, error } = await supabase
+    const { data, error } = await syncClient
         .from('incidents')
         .select(INCIDENT_PULL_COLUMNS)
         .in('id', uniqueIds);
@@ -415,8 +452,29 @@ async function pullIncidentsByIds(db: SQLiteDatabase, remoteIncidentIds: string[
     }
 
     if (data && data.length > 0) {
-        await upsertIncidentsFromServer(db, mapPulledIncidents(data as unknown as PullIncident[]));
+        const incidents = mapPulledIncidents(data as unknown as PullIncident[]);
+        await upsertIncidentsFromServer(db, incidents);
+        await pullIncidentMaterials(db, incidents.map(row => row.id));
         debugLog(`Sync: Refreshed ${data.length} changed incidents`);
+    }
+}
+
+async function pullIncidentMaterials(db: SQLiteDatabase, remoteIds: string[]): Promise<void> {
+    if (remoteIds.length === 0) return;
+    for (let offset = 0; offset < remoteIds.length; offset += 100) {
+      let lastId: string | null = null;
+      while (true) {
+        let query = syncClient.from('incident_materials')
+            .select('id,incident_id,client_material_id,material_name,quantity')
+            .in('incident_id', remoteIds.slice(offset, offset + 100))
+            .order('id').limit(1000);
+        if (lastId) query = query.gt('id', lastId);
+        const { data, error } = await query;
+        if (error) throw new Error(`Material download failed: ${error.message}`);
+        await upsertIncidentMaterialsFromServer(db, (data || []).map(row => ({ ...row, quantity: Number(row.quantity) })));
+        if (!data || data.length < 1000) break;
+        lastId = data[data.length - 1].id;
+      }
     }
 }
 
@@ -432,6 +490,7 @@ function mapPulledIncidents(data: PullIncident[]) {
         depart_hta: incident.depart_hta || null,
         commune_id: incident.commune_id || null,
         equipment_used: incident.equipment_used || '',
+        no_material_used: incident.no_material_used === true,
         description: incident.description || undefined,
         reclamation: incident.reclamation === true,
         reclamation_name: incident.reclamation_name || undefined,
@@ -479,7 +538,8 @@ function getIncrementalPullLowerBound(lastPulledAt: string): string {
 async function processSyncOperations(
     db: SQLiteDatabase,
     batchSize: number,
-    maxDurationMs: number
+    maxDurationMs: number,
+    userId: string
 ): Promise<SyncProcessResult> {
     const result: SyncProcessResult = { affectedRemoteIncidentIds: [], remoteWriteCount: 0 };
     const deadline = Date.now() + maxDurationMs;
@@ -489,7 +549,7 @@ async function processSyncOperations(
             debugLog('Sync: Yielding with operations remaining');
             return result;
         }
-        const operations = await getRunnableSyncOperations(db, batchSize);
+        const operations = await getRunnableSyncOperations(db, batchSize, userId);
         if (operations.length === 0) {
             if (pass === 0) debugLog('Sync: No queued operations');
             return result;
@@ -498,6 +558,8 @@ async function processSyncOperations(
         debugLog(`Sync: Processing ${operations.length} queued operation(s)`);
 
         for (const operation of operations) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user.id !== userId) return result;
             if (Date.now() >= deadline) {
                 debugLog('Sync: Yielding with operations remaining');
                 return result;
@@ -515,6 +577,7 @@ async function processSyncOperations(
                     result.remoteWriteCount += 1;
                 }
                 await markSyncOperationDone(db, operation.id);
+                await refreshIncidentSyncState(db, operation.local_incident_id);
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Unknown sync error';
                 const failure = classifySyncError(message);
@@ -528,6 +591,7 @@ async function processSyncOperations(
                     await markIncidentPendingForRetry(db, operation);
                     console.error(`Sync: Operation ${operation.id} failed`, message);
                 }
+                await refreshIncidentSyncState(db, operation.local_incident_id);
             }
         }
     }
@@ -536,7 +600,7 @@ async function processSyncOperations(
 }
 
 function shouldResetRetryBackoff(reason?: SyncOptions['reason']): boolean {
-    return reason === 'manual' || reason === 'network' || reason === 'startup' || reason === 'foreground';
+    return reason === 'manual' || reason === 'network';
 }
 
 async function processSyncOperation(
@@ -578,6 +642,13 @@ async function shouldDeferOperationUntilIncidentExists(
     const incident = await getIncidentByLocalId(db, operation.local_incident_id);
     if (!incident) {
         return false;
+    }
+
+    if (operation.operation_type === 'update_incident_status') {
+        const materialWork = await db.getFirstAsync<{ count: number }>(
+            `SELECT COUNT(*) AS count FROM sync_operations WHERE local_incident_id = ?
+             AND operation_type = 'sync_materials' AND status != 'done'`, [incident.id]);
+        if ((materialWork?.count ?? 0) > 0) return true;
     }
 
     if (operation.remote_incident_id || incident.remote_id) {
@@ -644,6 +715,12 @@ async function processCreateIncident(
     operation: SyncOperationRow
 ): Promise<string> {
     const incident = await requireIncident(db, operation.local_incident_id);
+    if (incident.status === 'closed') {
+        const closure = await db.getFirstAsync<{ id: number }>(
+            `SELECT id FROM sync_operations WHERE local_incident_id = ?
+             AND operation_type = 'update_incident_status' AND status != 'done'`, [incident.id]);
+        if (!closure) await enqueueStatusUpdate(db, incident.id, 'closed');
+    }
     await markIncidentSyncing(db, incident.id);
 
     if (!isValidUUID(incident.commune_id)) {
@@ -656,7 +733,7 @@ async function processCreateIncident(
         return existing.id;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await syncClient
         .from('incidents')
         .insert(toRemoteInsert(incident))
         .select('id')
@@ -686,7 +763,7 @@ async function processMediaUpload(
     }
 
     const clientMediaId = payload.clientMediaId || `media-${operation.id}`;
-    const upload = await uploadToSupabase(payload.localUri, incident.remote_id, `${clientMediaId}.jpg`);
+    const upload = await uploadToSupabase(payload.localUri, incident.remote_id, `${clientMediaId}.jpg`, syncAccessToken);
     await enqueueAttachMedia(
         db,
         incident.id,
@@ -717,7 +794,10 @@ async function processAttachMedia(
 
     await appendRemoteMedia(remoteIncidentId, payload);
 
-    const nextLocalUrls = uniqueUrls([...parseMediaUrls(incident.media_urls), payload.remoteUrl]);
+    const nextLocalUrls = uniqueUrls([
+        ...parseMediaUrls(incident.media_urls).filter(url => url !== payload.localUri),
+        payload.remoteUrl,
+    ]);
     await updateIncidentMediaUrls(db, incident.id, nextLocalUrls);
     await markIncidentSyncedWithRemoteId(db, incident.id, remoteIncidentId);
     if (payload.localUri) {
@@ -740,7 +820,7 @@ async function processSyncMaterials(
         return incident.remote_id;
     }
 
-    const { error } = await supabase.rpc('upsert_incident_materials', {
+    const { error } = await syncClient.rpc('upsert_incident_materials', {
         p_incident_id: incident.remote_id,
         p_materials: materials.map((material) => ({
             client_material_id: material.client_material_id,
@@ -769,9 +849,9 @@ async function processStatusUpdate(
         throw new Error('Cannot update status before incident has remote_id');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await syncClient
         .from('incidents')
-        .select('status')
+        .select('status, equipment_used, no_material_used')
         .eq('id', incident.remote_id)
         .single();
 
@@ -780,23 +860,29 @@ async function processStatusUpdate(
     }
 
     const remote = data as RemoteIncident;
-    if (remote.status === 'closed') {
+    const materials = payload.status === 'closed' ? await getIncidentMaterialsByLocalId(db, incident.id) : [];
+    const noMaterialUsed = payload.status === 'closed' && incident.no_material_used === 1;
+    if (noMaterialUsed && materials.length > 0) throw new Error('Material declaration conflicts with recorded materials');
+    const equipmentSummary = noMaterialUsed ? NO_MATERIAL_USED_LABEL
+        : materials.length > 0 ? buildEquipmentSummary(materials) : incident.equipment_used;
+    if (remote.status === payload.status && (payload.status !== 'closed' || remote.equipment_used === equipmentSummary && Boolean(remote.no_material_used) === noMaterialUsed)) {
         await db.runAsync(
             `UPDATE incidents
-             SET status = 'closed', synced = 1, sync_status = 'synced', sync_error = NULL
+             SET status = ?, synced = 1, sync_status = 'synced', sync_error = NULL
              WHERE id = ?`,
-            [incident.id]
+            [payload.status, incident.id]
         );
         return incident.remote_id;
     }
 
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await syncClient
         .from('incidents')
-        .update({ status: payload.status })
-        .eq('id', incident.remote_id);
+        .update({ status: payload.status, no_material_used: noMaterialUsed, ...(payload.status === 'closed' ? { equipment_used: equipmentSummary } : {}) })
+        .eq('id', incident.remote_id)
+        .select('id').single();
 
-    if (updateError) {
-        throw new Error(updateError.message);
+    if (updateError || !updated) {
+        throw new Error(updateError?.message || 'Status update affected no incident');
     }
 
     await markIncidentSyncedWithRemoteId(db, incident.id, incident.remote_id);
@@ -815,7 +901,7 @@ async function requireIncident(
 }
 
 async function findRemoteByClientId(clientId: string): Promise<RemoteIncident | null> {
-    const { data, error } = await supabase
+    const { data, error } = await syncClient
         .from('incidents')
         .select('id, client_id, status, media_urls')
         .eq('client_id', clientId)
@@ -834,7 +920,9 @@ function toRemoteInsert(incident: IncidentRow) {
         type: incident.type,
         date: incident.date,
         village: incident.village,
-        status: incident.status,
+        // Materials cannot exist remotely until creation succeeds.
+        status: 'open',
+        created_by: incident.created_by,
         incident_type: incident.incident_type,
         depart_hta: incident.type === 'MT' ? incident.depart_hta : null,
         commune_id: incident.commune_id,
@@ -881,7 +969,7 @@ async function appendRemoteMedia(
     remoteIncidentId: string,
     payload: AttachMediaPayload
 ): Promise<void> {
-    const { error: rpcError } = await supabase.rpc('append_incident_media', {
+    const { error: rpcError } = await syncClient.rpc('append_incident_media', {
         p_incident_id: remoteIncidentId,
         p_client_media_id: payload.clientMediaId || `media-${Date.now()}`,
         p_storage_path: payload.storagePath || '',
@@ -891,28 +979,8 @@ async function appendRemoteMedia(
     if (!rpcError) {
         return;
     }
-
-    const { data, error } = await supabase
-        .from('incidents')
-        .select('media_urls')
-        .eq('id', remoteIncidentId)
-        .single();
-
-    if (error) {
-        throw new Error(error.message);
-    }
-
-    const remoteMediaUrls = Array.isArray(data?.media_urls) ? data.media_urls : [];
-    const nextRemoteUrls = uniqueUrls([...remoteMediaUrls, payload.remoteUrl]);
-
-    const { error: updateError } = await supabase
-        .from('incidents')
-        .update({ media_urls: nextRemoteUrls })
-        .eq('id', remoteIncidentId);
-
-    if (updateError) {
-        throw new Error(updateError.message);
-    }
+    // A rejected RPC must not fall back to a less constrained table write.
+    throw new Error(rpcError.message);
 }
 
 function classifySyncError(message: string): { errorCode: string; isTerminal: boolean } {

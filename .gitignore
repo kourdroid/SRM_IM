@@ -50,3 +50,6 @@ app-example
 /.specify
 /specs
 /.sisyphus
+/.local-audit/
+/google-services.json
+/firebase-service-account*.json

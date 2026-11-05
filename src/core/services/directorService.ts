@@ -50,6 +50,7 @@ export interface DirectorIncidentFilters {
   type?: 'BT' | 'MT' | 'all';
   search?: string;
   lastCreatedAt?: string;
+  lastId?: string;
 }
 
 type DirectorDashboardRecord = {
@@ -103,9 +104,10 @@ export const DirectorService = {
   },
 
   async getIncidents(limit = 20, filters: DirectorIncidentFilters = {}): Promise<DirectorIncident[]> {
-    const { data, error } = await supabase.rpc('get_director_incidents', {
+    const { data, error } = await supabase.rpc('get_director_incidents_page', {
       p_limit: limit,
       p_before_created_at: filters.lastCreatedAt || null,
+      p_before_id: filters.lastId || null,
       p_status: filters.status && filters.status !== 'all' ? filters.status : null,
       p_type: filters.type && filters.type !== 'all' ? filters.type : null,
       p_search: filters.search?.trim() || null,

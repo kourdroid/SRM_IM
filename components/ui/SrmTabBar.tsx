@@ -87,6 +87,9 @@ export function SrmTabBar({
 
         return (
           <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel={item.label}
+            accessibilityState={{ selected: isFocused }}
             key={route.key}
             onPress={onPress}
             style={{

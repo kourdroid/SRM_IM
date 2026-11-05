@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Intervex",
-    "slug": "intervex",
-    "version": "1.0.7",
+    "slug": "SRM",
+    "version": "1.0.12",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -34,7 +34,7 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.kaliits.srmims",
-      "versionCode": 8
+      "versionCode": 9
     },
     "web": {
       "output": "static",
@@ -42,6 +42,23 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#111827",
+          "defaultChannel": "incidents-urgent-v1",
+          "sounds": ["./assets/sounds/intervx_alert.wav"]
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://de.sentry.io/",
+          "project": "srm-ims",
+          "organization": "kourchal-vv"
+        }
+      ],
       [
         "expo-splash-screen",
         {

@@ -60,10 +60,12 @@ export async function persistIncidentMedia(uri: string, clientMediaId: string): 
   }
 
   const destinationPath = `${dir}${clientMediaId}.jpg`;
-  await FileSystem.copyAsync({
-    from: uri,
-    to: destinationPath,
-  });
+  try {
+    await FileSystem.copyAsync({ from: uri, to: destinationPath });
+  } catch (error) {
+    await deleteLocalMedia(destinationPath);
+    throw error;
+  }
 
   return destinationPath;
 }
@@ -74,7 +76,8 @@ export async function persistIncidentMedia(uri: string, clientMediaId: string): 
 export async function uploadToSupabase(
   localPath: string,
   incidentId: string,
-  objectName?: string
+  objectName?: string,
+  accessToken?: string
 ): Promise<{ publicUrl: string; storagePath: string }> {
   let uploadPath: string | null = null;
   try {
@@ -90,7 +93,7 @@ export async function uploadToSupabase(
       error: sessionError,
     } = await supabase.auth.getSession();
 
-    if (sessionError || !session?.access_token) {
+    if (!accessToken && (sessionError || !session?.access_token)) {
       throw new Error(sessionError?.message || 'User session is required for media upload.');
     }
 
@@ -104,7 +107,7 @@ export async function uploadToSupabase(
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       headers: {
         apikey: supabaseAnonKey,
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken || session?.access_token}`,
         'Content-Type': 'image/jpeg',
         'x-upsert': 'true',
       },

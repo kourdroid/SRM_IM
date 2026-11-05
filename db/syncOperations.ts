@@ -107,7 +107,9 @@ export async function enqueueSyncMaterials(
     localIncidentId,
     {},
     null,
-    `sync_materials:${localIncidentId}`
+    // Each material revision has its own durable operation. A completed or
+    // running revision must never swallow a later edit.
+    `sync_materials:${localIncidentId}:${Date.now()}:${Math.random().toString(36).slice(2)}`
   );
 }
 
@@ -132,17 +134,20 @@ export async function enqueueAttachMedia(
 
 export async function getRunnableSyncOperations(
   db: SQLiteDatabase,
-  limit = 20
+  limit = 20,
+  userId?: string
 ): Promise<SyncOperationRow[]> {
+  if (!userId) return [];
   return db.getAllAsync<SyncOperationRow>(
-    `SELECT * FROM sync_operations
-     WHERE is_terminal = 0
+    `SELECT so.* FROM sync_operations so
+     JOIN incidents i ON i.id = so.local_incident_id
+     WHERE i.created_by = ? AND so.is_terminal = 0
        AND (
-        status = 'pending'
-        OR (status = 'failed' AND COALESCE(next_attempt_at, updated_at) <= CURRENT_TIMESTAMP)
+        so.status = 'pending'
+        OR (so.status = 'failed' AND COALESCE(so.next_attempt_at, so.updated_at) <= CURRENT_TIMESTAMP)
        )
      ORDER BY
-       CASE operation_type
+       CASE so.operation_type
          WHEN 'create_incident' THEN 0
          WHEN 'sync_materials' THEN 1
          WHEN 'update_incident_status' THEN 2
@@ -150,9 +155,9 @@ export async function getRunnableSyncOperations(
          WHEN 'attach_media' THEN 4
          ELSE 4
        END,
-       id ASC
+       so.id ASC
      LIMIT ?`,
-    [limit]
+    [userId, limit]
   );
 }
 
@@ -247,11 +252,12 @@ export async function markSyncOperationFailed(
   );
 }
 
-export async function recoverMissingMediaUploadOperations(db: SQLiteDatabase): Promise<void> {
+export async function recoverMissingMediaUploadOperations(db: SQLiteDatabase, userId: string): Promise<void> {
   const incidents = await db.getAllAsync<{ id: number; media_urls: string | null }>(
     `SELECT id, media_urls FROM incidents
-     WHERE media_urls IS NOT NULL
-       AND media_urls LIKE '%file:%'`
+     WHERE created_by = ? AND media_urls IS NOT NULL
+       AND media_urls LIKE '%file:%'`,
+    [userId]
   );
   const existingUploads = await db.getAllAsync<{ local_incident_id: number; payload_json: string }>(
     `SELECT local_incident_id, payload_json

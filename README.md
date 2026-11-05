@@ -27,6 +27,16 @@ SRM is a robust **Field Incident Management System** designed for ONEE (Office N
 - ⚙️ **Profile & Settings** — Admin profile screen with sign-out functionality.
 - 🛡️ **Route Protection** — Server-side role verification in the admin layout; non-admins are redirected immediately.
 
+### Director access
+
+Approved directors see **Administrateur** in the interface and share the administrator dashboard, incident list, reports, notifications, settings, and tab bar components. The internal role remains `director`. Incident closure, reopening, deletion, user management, and reference editing remain administrator actions.
+
+Director reports include the existing filters and complete Excel export. Notification registration, inbox access, push delivery eligibility, and acknowledgement use the same recipient-owned flow as administrators. A newly registered phone does not receive old push alerts.
+
+For rollout, apply `20261104131602_director_incident_notifications.sql` and `20261104131618_director_report_access.sql`, deploy `generate-report-export`, then distribute the updated app. Apply the reporting migration before distributing the app: the shared screens use `get_supervision_profiles()` to resolve names without exposing whole user profiles. Existing notification worker configuration must already be operational; see [notification deployment](supabase/functions/send-incident-notifications/README.md).
+
+Focused checks: `node tests/director-ui-regression.cjs`, `node tests/notification-client-regression.cjs`, `node tests/director-notifications-postgres.cjs`, and the transactional `tests/director-report-access.sql` canary. PostgreSQL fixtures use disposable databases; phone delivery and live exports still require deployment validation.
+
 ---
 
 ## 🚀 Tech Stack

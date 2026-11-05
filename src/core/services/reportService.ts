@@ -306,8 +306,7 @@ async function fetchProfileNames(userIds: string[]): Promise<Map<string, string>
   }
 
   const { data, error } = await supabase
-    .from('user_profiles')
-    .select('id, name')
+    .rpc('get_supervision_profiles')
     .in('id', uniqueIds);
 
   if (error) {

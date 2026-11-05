@@ -15,7 +15,7 @@ INSERT INTO auth.users(id,email) VALUES
  ('33333333-3333-4333-8333-333333333333','notification-field@example.invalid');
 INSERT INTO public.user_profiles(id,role,approval_status) VALUES
  ('11111111-1111-4111-8111-111111111111','admin','approved'),
- ('22222222-2222-4222-8222-222222222222','admin','approved'),
+ ('22222222-2222-4222-8222-222222222222','director','approved'),
  ('33333333-3333-4333-8333-333333333333','field','approved')
 ON CONFLICT (id) DO UPDATE SET role=EXCLUDED.role,approval_status=EXCLUDED.approval_status;
 INSERT INTO auth.sessions(id,user_id) VALUES
@@ -31,6 +31,18 @@ DO $$ BEGIN
     RAISE EXCEPTION 'Field registration accepted';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
+RESET ROLE;
+UPDATE public.user_profiles SET role='director',approval_status='pending' WHERE id='33333333-3333-4333-8333-333333333333';
+SET LOCAL ROLE authenticated;
+DO $$ BEGIN
+  BEGIN
+    PERFORM public.register_admin_push_token('ExpoPushToken[pendingdirector]');
+    RAISE EXCEPTION 'Pending director registration accepted';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END $$;
+RESET ROLE;
+UPDATE public.user_profiles SET role='field',approval_status='approved' WHERE id='33333333-3333-4333-8333-333333333333';
+SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated","session_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}',true);
 SELECT public.register_admin_push_token('ExpoPushToken[admintesttoken1]');
 SELECT public.register_admin_push_token('ExpoPushToken[admintesttoken1]');
@@ -47,7 +59,7 @@ SELECT set_config('request.jwt.claims','{}',true);
 INSERT INTO public.incidents(id,type,incident_type,village,status,created_by,date,equipment_used) VALUES
  ('44444444-4444-4444-8444-444444444444','MT','Test notification','Test village','open','33333333-3333-4333-8333-333333333333',now(),'');
 DO $$ BEGIN
-  IF (SELECT count(*) FROM public.admin_notifications WHERE incident_id='44444444-4444-4444-8444-444444444444') <> (SELECT count(*) FROM public.user_profiles WHERE role='admin' AND approval_status='approved') THEN RAISE EXCEPTION 'Expected one alert per approved admin'; END IF;
+  IF (SELECT count(*) FROM public.admin_notifications WHERE incident_id='44444444-4444-4444-8444-444444444444') <> (SELECT count(*) FROM public.user_profiles WHERE role IN ('admin','director') AND approval_status='approved') THEN RAISE EXCEPTION 'Expected one alert per approved admin or director'; END IF;
   IF (SELECT count(*) FROM private.admin_notification_deliveries d JOIN public.admin_notifications n ON n.id=d.notification_id WHERE n.incident_id='44444444-4444-4444-8444-444444444444') <> 4 THEN RAISE EXCEPTION 'Expected initial and reminder for each device'; END IF;
 END $$;
 
@@ -76,6 +88,7 @@ END $$;
 CREATE TEMP TABLE claimed_notification_jobs AS SELECT j AS job FROM public.claim_admin_notification_deliveries(100) j;
 DO $$ BEGIN
   IF (SELECT count(*) FROM claimed_notification_jobs) <> 2 THEN RAISE EXCEPTION 'Initial claim count incorrect'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM claimed_notification_jobs WHERE job->>'recipient_id'='22222222-2222-4222-8222-222222222222') THEN RAISE EXCEPTION 'Director delivery was not claimed'; END IF;
   IF (SELECT count(*) FROM public.claim_admin_notification_deliveries(100)) <> 0 THEN RAISE EXCEPTION 'Concurrent claims duplicated leases'; END IF;
   IF public.finish_admin_notification_delivery((SELECT (job->>'id')::uuid FROM claimed_notification_jobs LIMIT 1),gen_random_uuid(),'{"outcome":"ticket","receipt_id":"wrong"}') THEN RAISE EXCEPTION 'Wrong lease accepted'; END IF;
 END $$;
@@ -89,6 +102,15 @@ END $$;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}',true);
 SELECT public.acknowledge_admin_notification(id) FROM public.admin_notifications WHERE incident_id='44444444-4444-4444-8444-444444444444';
+SELECT public.acknowledge_admin_notification(id) FROM public.admin_notifications WHERE incident_id='44444444-4444-4444-8444-444444444444';
+SELECT set_config('request.jwt.claims','{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}',true);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM public.admin_notifications WHERE incident_id='44444444-4444-4444-8444-444444444444') <> 1 THEN RAISE EXCEPTION 'Director ownership RLS failed'; END IF;
+  BEGIN
+    PERFORM public.acknowledge_admin_notification('99999999-9999-4999-8999-999999999999');
+    RAISE EXCEPTION 'Director foreign acknowledgement accepted';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END $$;
 SELECT public.acknowledge_admin_notification(id) FROM public.admin_notifications WHERE incident_id='44444444-4444-4444-8444-444444444444';
 RESET ROLE;
 DO $$ BEGIN

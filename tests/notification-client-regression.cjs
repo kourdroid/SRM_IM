@@ -233,5 +233,33 @@ async function check(name, run) {
     assert.ok(events.indexOf('deactivate') < events.indexOf('unregister'));
     assert.ok(events.indexOf('unregister') < events.indexOf('sign-out'));
   });
+  await check('Coordinator registers approved directors and keeps notification taps in their role routes', async () => {
+    for (const role of ['admin', 'director', 'field', 'pending-director']) {
+      const effects = [], activeUsers = [], routes = [];
+      let registrations = 0;
+      const response = { actionIdentifier: 'default', notification: { request: { identifier: 'test', content: { data: { recipient_id: userId, incident_id: incidentId, notification_id: notificationId } } } } };
+      const coordinator = evaluate('components/AdminNotificationCoordinator.tsx', {
+        '@/contexts/AuthContext': { useAuth: () => ({ user: { id: userId }, loading: false, isAdmin: role === 'admin', isDirector: role === 'director' }) },
+        '@/lib/adminNotifications': {
+          setActiveAdminNotificationUser: id => activeUsers.push(id),
+          syncAdminPushNotifications: async () => { registrations += 1; },
+          unregisterAdminPushNotifications: async () => {},
+          parseAdminNotificationTarget: (_data, id) => id === userId ? { incidentId, notificationId } : null,
+        },
+        '@/lib/monitoring': { Sentry: { captureMessage() {} } },
+        'expo-notifications': { DEFAULT_ACTION_IDENTIFIER: 'default', clearLastNotificationResponseAsync: async () => {} },
+        'expo-router': { router: { push: route => routes.push(route) }, useRootNavigationState: () => ({ key: 'root' }) },
+        'react': { useEffect: effect => effects.push(effect), useCallback: fn => fn, useState: () => [response, () => {}], useRef: current => ({ current }) },
+        'react-native': { Platform: { OS: 'web' } },
+      }).default;
+      coordinator();
+      effects.forEach(effect => effect());
+      const eligible = role === 'admin' || role === 'director';
+      assert.equal(activeUsers[0], eligible ? userId : null);
+      assert.equal(registrations, eligible ? 1 : 0);
+      assert.equal(routes.length, eligible ? 1 : 0);
+      if (eligible) assert.equal(routes[0].pathname, `/(${role})/incidents`);
+    }
+  });
   console.log(`${passed} notification client regressions passed.`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -59,8 +59,8 @@ Deno.serve(async (request) => {
     .eq('id', userId)
     .maybeSingle();
   if (profileError) return json({ error: 'Could not verify account permissions' }, 503);
-  if (profile?.role !== 'admin' || profile.approval_status !== 'approved') {
-    return json({ error: 'Approved admin role required' }, 403);
+  if ((profile?.role !== 'admin' && profile?.role !== 'director') || profile.approval_status !== 'approved') {
+    return json({ error: 'Approved admin or director role required' }, 403);
   }
 
   let body: ExportRequest;

@@ -196,12 +196,11 @@ export const IncidentAdminService = {
             let profileMap = new Map<string, string>();
             if (userIds.length > 0) {
                 const { data: profiles } = await supabase
-                    .from('user_profiles')
-                    .select('id, name')
+                    .rpc('get_supervision_profiles')
                     .in('id', userIds);
                 
                 if (profiles) {
-                    profileMap = new Map(profiles.map(p => [p.id, p.name]));
+                    profileMap = new Map(profiles.map((p: { id: string; name: string | null }) => [p.id, p.name || 'Utilisateur inconnu']));
                 }
             }
 

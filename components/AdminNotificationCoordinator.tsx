@@ -12,11 +12,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
 export default function AdminNotificationCoordinator() {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading, isAdmin, isDirector } = useAuth();
   const navigation = useRootNavigationState();
   const [response, setResponse] = useState<Notifications.NotificationResponse | null>(null);
   const handledResponse = useRef<string | null>(null);
-  const currentAdmin = !loading && isAdmin ? user?.id ?? null : null;
+  const currentAdmin = !loading && (isAdmin || isDirector) ? user?.id ?? null : null;
   const adminRef = useRef(currentAdmin);
   adminRef.current = currentAdmin;
 
@@ -64,9 +64,9 @@ export default function AdminNotificationCoordinator() {
     setResponse(null);
     void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
     if (target && response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
-      router.push({ pathname: '/(admin)/incidents', params: target });
+      router.push({ pathname: isDirector ? '/(director)/incidents' : '/(admin)/incidents', params: target });
     }
-  }, [response, loading, navigation?.key, currentAdmin, user]);
+  }, [response, loading, navigation?.key, currentAdmin, user, isDirector]);
 
   return null;
 }

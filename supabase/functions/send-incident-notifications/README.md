@@ -1,10 +1,10 @@
 # Admin incident notifications
 
-The migration adds an inbox for each approved administrator and a private per-device delivery queue. Existing incidents are not backfilled. New open incidents create inbox rows even when no administrator has registered a phone. Registering a phone does not replay old push alerts.
+The migrations add an inbox for each approved administrator or director and a private per-device delivery queue. Existing incidents are not backfilled. New open incidents create inbox rows even when no recipient has registered a phone. Registering a phone does not replay old push alerts.
 
 ## Deployment
 
-1. Apply `20261026152506_admin_incident_notifications.sql` using the Supabase migration workflow. It enables `pg_net` and `pg_cron`, creates the queue, and schedules a one-minute retry wake-up. The incident trigger wakes the worker immediately; no HTTP call blocks field submission.
+1. Apply the notification migrations, including `20261104131602_director_incident_notifications.sql`, using the Supabase migration workflow. The original migration enables `pg_net` and `pg_cron`, creates the queue, and schedules a one-minute retry wake-up. The incident trigger wakes the worker immediately; no HTTP call blocks field submission.
 2. Generate the worker credential entirely within SQL using `encode(extensions.gen_random_bytes(32),'hex')` and save it directly in Vault as `intervx_notification_worker_secret`. Store the project API origin in Vault as `intervx_notification_project_url`. Do not return, read back, or expose the generated credential. No additional Edge environment secret is required.
 3. Deploy this directory's `index.ts`, `worker.ts`, `deno.json`, and lockfile as `send-incident-notifications`, with gateway JWT verification disabled. The function verifies its dedicated bearer credential through the service-role-only `verify_admin_notification_worker` RPC, which compares SHA-256 digests against Vault without returning the stored secret. Only after successful verification does it claim delivery jobs. It uses the platform-provided service-role key only on the server.
 4. If enhanced Expo Push security is enabled for the Expo project, set the corresponding `EXPO_PUSH_ACCESS_TOKEN` Edge secret. This is optional when Expo Push access-token enforcement is disabled.
@@ -13,9 +13,9 @@ The migration adds an inbox for each approved administrator and a private per-de
 
 Client API:
 
-- `register_admin_push_token({p_token})`: approved admin and active auth session required; repeat calls are idempotent and account switches transfer ownership.
+- `register_admin_push_token({p_token})`: approved admin or director and active auth session required; repeat calls are idempotent and account switches transfer ownership.
 - `unregister_admin_push_token({p_token})`: deletes only the current user's registration; call before local sign-out.
-- `admin_notifications`: authenticated approved admins can select their own rows; no direct client writes or push-token reads.
+- `admin_notifications`: authenticated approved admins and directors can select their own rows; no direct client writes or push-token reads.
 - `acknowledge_admin_notification({p_notification_id})`: idempotent, recipient only; cancels unsent work, including the reminder.
 
 Only `service_role` can call the claim/result RPCs. The worker rechecks approval, session existence, token ownership, incident state, and acknowledgement before claiming a send. A race after claiming cannot retract a push already accepted by the provider.

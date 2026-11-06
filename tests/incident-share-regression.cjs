@@ -75,7 +75,7 @@ function load(relative) {
   assert.ok(wrapped.join('').includes('حادث'));
   const sections = service.incidentShareSections({ ...data, description: '\n'.repeat(1100), materials: 'Matériel '.repeat(1000) });
   assert.ok(sections.reduce((height, section) => height + 84 + section.lines.length * 33, 448) < 3500, 'Prevent unbounded export bitmaps');
-  assert.ok(sections.some(section => section.lines.some(line => line.includes('suite dans IntervX'))));
+  assert.ok(sections.some(section => section.lines.some(line => line.includes('suite dans Intervx'))));
   await service.shareIncidentPng('png-base64', 1, () => true);
   assert.equal(files.shares[0][1].mimeType, 'image/png');
   assert.ok(!files.deleted.includes(files.shares[0][0]), 'Receiver must retain access after chooser closes');

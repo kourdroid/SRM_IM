@@ -27,7 +27,7 @@ export function IncidentShareCard({ data, svgRef, onReady, displayWidth = 720 }:
   return <Svg ref={svgRef} width={displayWidth} height={height * displayWidth / 720} viewBox={`0 0 720 ${height}`} onLayout={onReady}>
     <Rect width={720} height={height} fill={COLORS.surface} />
     <Rect width={720} height={190} fill={COLORS.textPrimary} />
-    <SvgText x={48} y={76} fill={COLORS.surface} fontFamily="Inter_700Bold" fontSize={48}>intervX</SvgText>
+    <SvgText x={48} y={76} fill={COLORS.surface} fontFamily="Inter_700Bold" fontSize={48}>Intervx</SvgText>
     <SvgText x={50} y={119} fill={COLORS.accent} fontFamily="Inter_700Bold" fontSize={17} letterSpacing={2}>SIGNALEMENT TERRAIN</SvgText>
     <SvgText x={50} y={157} fill={COLORS.borderStrong} fontFamily="Inter_400Regular" fontSize={18}>FICHE INCIDENT · {data.reference}</SvgText>
     <Rect x={582} y={49} width={90} height={70} rx={8} fill={COLORS.accent} />
@@ -44,7 +44,7 @@ export function IncidentShareCard({ data, svgRef, onReady, displayWidth = 720 }:
       {section.lines.map((line, index) => <TSpan key={index} x={48} y={section.y + 40 + index * 33}>{line || ' '}</TSpan>)}
     </SvgText>)}
     <Line x1={48} x2={672} y1={nextY + 5} y2={nextY + 5} stroke={COLORS.border} />
-    <SvgText x={48} y={nextY + 48} fill={COLORS.textSecondary} fontFamily="Inter_400Regular" fontSize={17}>IntervX · Gestion des incidents terrain</SvgText>
+    <SvgText x={48} y={nextY + 48} fill={COLORS.textSecondary} fontFamily="Inter_400Regular" fontSize={17}>Intervx · Gestion des incidents terrain</SvgText>
     <SvgText x={672} y={nextY + 48} textAnchor="end" fill={COLORS.textSecondary} fontFamily="Inter_500Medium" fontSize={17}>BT / MT</SvgText>
   </Svg>;
 }

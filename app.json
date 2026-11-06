@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Intervex",
+    "name": "Intervx",
     "slug": "SRM",
     "version": "1.0.12",
     "runtimeVersion": {
@@ -14,9 +14,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Intervex utilise la caméra pour joindre une photo à un incident terrain.",
-        "NSPhotoLibraryUsageDescription": "Intervex utilise la galerie pour joindre une photo à un incident terrain.",
-        "NSLocationWhenInUseUsageDescription": "Intervex utilise la position GPS pour localiser précisément l'incident signalé."
+        "NSCameraUsageDescription": "Intervx utilise la caméra pour joindre une photo à un incident terrain.",
+        "NSPhotoLibraryUsageDescription": "Intervx utilise la galerie pour joindre une photo à un incident terrain.",
+        "NSLocationWhenInUseUsageDescription": "Intervx utilise la position GPS pour localiser précisément l'incident signalé."
       }
     },
     "android": {
@@ -74,15 +74,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Intervex utilise la galerie pour joindre une photo à un incident terrain.",
-          "cameraPermission": "Intervex utilise la caméra pour joindre une photo à un incident terrain.",
+          "photosPermission": "Intervx utilise la galerie pour joindre une photo à un incident terrain.",
+          "cameraPermission": "Intervx utilise la caméra pour joindre une photo à un incident terrain.",
           "microphonePermission": false
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Intervex utilise la position GPS pour localiser précisément l'incident signalé."
+          "locationWhenInUsePermission": "Intervx utilise la position GPS pour localiser précisément l'incident signalé."
         }
       ]
     ],

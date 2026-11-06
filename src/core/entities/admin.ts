@@ -28,6 +28,18 @@ export const AdminIncidentClosureSchema = z.object({
 }).refine(value => value.no_material_used ? value.materials.length === 0 : value.materials.length > 0,
     'Déclarez le matériel utilisé ou confirmez aucun matériel utilisé.');
 
+export const AdminIncidentDetailsSchema = z.object({
+    id: z.string().uuid(),
+    incident_type: z.string().trim().min(1, "Le type d'incident est requis."),
+    depart_hta: z.string().trim().nullable(),
+    commune_id: z.string().uuid('La commune est requise.'),
+    village: z.string().trim().min(1, 'Le village est requis.').max(200),
+    description: z.string().trim().max(4000),
+    reclamation: z.boolean(),
+    reclamation_name: z.string().trim().max(200).nullable(),
+    reclamation_by: z.string().trim().max(200).nullable(),
+});
+
 export const UserRoleUpdateSchema = z.object({
     id: z.string().uuid(),
     role: z.enum(['field', 'admin', 'director'])
@@ -63,6 +75,7 @@ export type MonthlyChartPoint = z.infer<typeof MonthlyChartPointSchema>;
 export type ChartDataPoint = MonthlyChartPoint;
 export type AdminIncidentUpdate = z.infer<typeof AdminIncidentUpdateSchema>;
 export type AdminIncidentClosure = z.infer<typeof AdminIncidentClosureSchema>;
+export type AdminIncidentDetails = z.infer<typeof AdminIncidentDetailsSchema>;
 export type UserRoleUpdate = z.infer<typeof UserRoleUpdateSchema>;
 export type UserApprovalStatusUpdate = z.infer<typeof UserApprovalStatusUpdateSchema>;
 export type CommuneMutation = z.infer<typeof CommuneMutationSchema>;

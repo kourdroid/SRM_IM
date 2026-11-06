@@ -37,7 +37,7 @@ reminder. Do not treat an accepted provider receipt as proof of phone delivery.
 
 Verified on 2026-10-26:
 
-- Firebase FCM v1 is enabled on the Spark plan. The dedicated `IntervX Push`
+- Firebase FCM v1 is enabled on the Spark plan. The dedicated `Intervx Push`
   service account has the Firebase Cloud Messaging API Admin role, and its key
   is assigned to `com.kaliits.srmims` in EAS. Google authentication and an FCM
   validation-only request both returned HTTP 200; no phone notification was sent.
@@ -70,7 +70,7 @@ Verified on 2026-10-27:
   does not verify installed-device behavior or constitute Google Play publication.
 
 Field members can tap the share icon on a saved incident card or its detail
-sheet. The app creates an IntervX PNG using the saved incident, including locally
+sheet. The app creates an Intervx PNG using the saved incident, including locally
 pending incidents, then opens the system share sheet. Sharing is optional and
 does not change saving, closure or synchronization. Empty sections are omitted;
 long text is bounded with an explicit continuation marker. Personal reclamation

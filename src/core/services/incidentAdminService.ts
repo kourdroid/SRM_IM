@@ -5,6 +5,8 @@ import { z } from 'zod';
 import {
     AdminIncidentClosureSchema,
     AdminIncidentUpdateSchema,
+    AdminIncidentDetailsSchema,
+    type AdminIncidentDetails,
     type AdminIncidentClosure,
     type AdminIncidentUpdate,
 } from '../entities/admin';
@@ -285,6 +287,26 @@ export const IncidentAdminService = {
             p_no_material_used: validPayload.no_material_used,
         });
         if (error || data !== validPayload.id) throw new Error(`Mutation failed: ${error?.message || 'Incident absent ou accès refusé'}`);
+    },
+
+    /** Corrects descriptive fields of an open or closed incident; validated and audited server-side. */
+    async updateIncidentDetails(details: AdminIncidentDetails): Promise<void> {
+        const valid = AdminIncidentDetailsSchema.parse(details);
+
+        await assertOnline();
+
+        const { data, error } = await supabase.rpc('update_incident_by_admin', {
+            p_incident_id: valid.id,
+            p_incident_type: valid.incident_type,
+            p_depart_hta: valid.depart_hta,
+            p_commune_id: valid.commune_id,
+            p_village: valid.village,
+            p_description: valid.description,
+            p_reclamation: valid.reclamation,
+            p_reclamation_name: valid.reclamation_name,
+            p_reclamation_by: valid.reclamation_by,
+        });
+        if (error || data !== valid.id) throw new Error(`Mutation failed: ${error?.message || 'Incident absent ou accès refusé'}`);
     },
 
     /** Soft delete: the row is archived server-side and hidden from every list, report and field device. */

@@ -233,7 +233,7 @@ export default function SupervisionDashboardScreen() {
         <View style={styles.headerSection}>
           <View style={styles.headerInner}>
             <View>
-              <Text style={styles.headerGreeting}>{isAdmin ? 'Intervex' : 'Administrateur'}</Text>
+              <Text style={styles.headerGreeting}>{isAdmin ? 'Intervx' : 'Administrateur'}</Text>
               <Text style={styles.headerTitle}>Tableau de bord</Text>
             </View>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Notifications${unreadNotifications === null ? '' : `, ${unreadNotifications} à consulter`}`}

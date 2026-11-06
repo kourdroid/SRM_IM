@@ -65,7 +65,7 @@ export function incidentShareSections(data: IncidentShareData) {
   // shortcut: bound optional text to keep PNG memory suitable for field phones; use a paginated report for full exports.
   const shorten = (text: string, max: number) => {
     const characters = Array.from(text.trim());
-    return characters.length > max ? characters.slice(0, max).join('') + '… [suite dans IntervX]' : characters.join('');
+    return characters.length > max ? characters.slice(0, max).join('') + '… [suite dans Intervx]' : characters.join('');
   };
   return [
     ['TYPE D’INCIDENT', shorten(data.incidentType, 160)],
@@ -77,7 +77,7 @@ export function incidentShareSections(data: IncidentShareData) {
   ].filter(([, value]) => value).map(([label, value]) => {
     const lines = wrapShareText(value, 25);
     const limit = label === 'DESCRIPTION' ? 24 : label === 'MATÉRIEL' ? 12 : 6;
-    return { label, lines: lines.length > limit ? [...lines.slice(0, limit - 1), '… [suite dans IntervX]'] : lines };
+    return { label, lines: lines.length > limit ? [...lines.slice(0, limit - 1), '… [suite dans Intervx]'] : lines };
   });
 }
 
@@ -102,7 +102,7 @@ export async function shareIncidentPng(base64: string, incidentId: number, isCur
     await FileSystem.writeAsStringAsync(file, base64, { encoding: FileSystem.EncodingType.Base64 });
     if (!isCurrent()) return;
     handedToShareSheet = true;
-    await Sharing.shareAsync(file, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: 'Partager l’incident IntervX' });
+    await Sharing.shareAsync(file, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: 'Partager l’incident Intervx' });
   } finally {
     // Receiving apps may read after the Android chooser closes; prune these cache files on the next day's share.
     if (!handedToShareSheet) await FileSystem.deleteAsync(file, { idempotent: true }).catch(() => undefined);

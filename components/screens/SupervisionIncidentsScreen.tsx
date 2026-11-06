@@ -13,6 +13,7 @@ import { IncidentAdminService, type Incident, type IncidentFilters } from '@/src
 import { acknowledgeAdminNotification } from '@/src/core/services/adminNotificationService';
 import { router, useLocalSearchParams } from 'expo-router';
 import { z } from 'zod';
+import AdminIncidentEditModal, { type IncidentEditPatch } from '@/components/AdminIncidentEditModal';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
@@ -76,6 +77,13 @@ export default function SupervisionIncidentsScreen() {
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [isArchivingIncident, setIsArchivingIncident] = useState(false);
+  const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
+
+  const handleIncidentEdited = (id: string, patch: IncidentEditPatch) => {
+    setIncidents(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i));
+    setSelectedIncident(prev => prev && prev.id === id ? { ...prev, ...patch } : prev);
+    Alert.alert('Succès', 'Incident modifié.');
+  };
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
   const [showClosureMaterials, setShowClosureMaterials] = useState(false);
   const [materialUsage, setMaterialUsage] = useState<MaterialUsageChoice>(null);
@@ -946,6 +954,16 @@ export default function SupervisionIncidentsScreen() {
                 {/* Modal Footer Actions */}
                 {isAdmin && <View style={styles.modalFooter}>
                   <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => setEditingIncident(selectedIncident)}
+                    disabled={isClosingIncident || isArchivingIncident}
+                    accessibilityRole="button"
+                    accessibilityLabel="Modifier l'incident"
+                  >
+                    <Ionicons name="create-outline" size={18} color={COLORS.textPrimary} />
+                    <Text style={styles.editBtnText}>Modifier l&apos;incident</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
                       styles.actionStatusBtn,
                       { backgroundColor: selectedIncident.status === 'open' ? COLORS.statGreen : COLORS.statRed }
@@ -980,6 +998,12 @@ export default function SupervisionIncidentsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <AdminIncidentEditModal
+        incident={editingIncident}
+        onClose={() => setEditingIncident(null)}
+        onSaved={handleIncidentEdited}
+      />
 
       <Modal
         visible={selectedPhotoUrl !== null}
@@ -1645,6 +1669,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.white,
+  },
+
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: COLORS.background,
+    gap: 8,
+  },
+
+  editBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
   },
 
   archiveBtn: {

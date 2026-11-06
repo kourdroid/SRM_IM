@@ -92,7 +92,7 @@ export default function SupervisionProfileScreen() {
 
         <View style={styles.footer}>
           <Text style={styles.version}>VERSION {appVersion}</Text>
-          <Text style={styles.product}>Intervex Incident Management</Text>
+          <Text style={styles.product}>Intervx Incident Management</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

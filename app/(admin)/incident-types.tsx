@@ -112,7 +112,7 @@ export default function IncidentTypeOptionsScreen() {
         ? await IncidentTypeAdminService.updateOption({
           id: editingOption.id,
           network_type: editingOption.incident_count > 0 ? editingOption.network_type : networkType,
-          name: editingOption.incident_count > 0 ? editingOption.name : name,
+          name,
           active: editingOption.active,
           sort_order: nextSortOrder,
         })
@@ -296,26 +296,30 @@ export default function IncidentTypeOptionsScreen() {
                 onChangeText={setName}
                 placeholder="Ex. Manque phase"
                 placeholderTextColor={COLORS.textMuted}
-                style={[styles.textInput, editingOption?.incident_count ? styles.disabledInput : null]}
-                editable={!saving && !editingOption?.incident_count}
-              />
-
-              <Text style={styles.inputLabel}>Ordre</Text>
-              <TextInput
-                value={sortOrder}
-                onChangeText={setSortOrder}
-                placeholder="0"
-                placeholderTextColor={COLORS.textMuted}
-                keyboardType="number-pad"
                 style={styles.textInput}
                 editable={!saving}
               />
+
+              {editingOption ? (
+                <>
+                  <Text style={styles.inputLabel}>Ordre</Text>
+                  <TextInput
+                    value={sortOrder}
+                    onChangeText={setSortOrder}
+                    placeholder="0"
+                    placeholderTextColor={COLORS.textMuted}
+                    keyboardType="number-pad"
+                    style={styles.textInput}
+                    editable={!saving}
+                  />
+                </>
+              ) : null}
 
               {editingOption?.incident_count ? (
                 <View style={styles.warningBox}>
                   <Ionicons name="information-circle-outline" size={20} color={COLORS.signalBlue} />
                   <Text style={styles.warningText}>
-                    Ce type est utilisé par des incidents. Vous pouvez changer l’ordre ou l’état, pas le nom ni le réseau.
+                    Ce type est utilisé par {editingOption.incident_count} incident(s). Renommer le met à jour dans tous ces incidents. Le réseau ne peut pas être modifié.
                   </Text>
                 </View>
               ) : null}

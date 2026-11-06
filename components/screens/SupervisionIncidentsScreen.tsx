@@ -736,7 +736,7 @@ export default function SupervisionIncidentsScreen() {
               <>
                 {/* Modal Header */}
                 <View style={styles.modalHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 12 }}>
                     <View style={styles.typeBadge}>
                       <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
                     </View>
@@ -744,12 +744,26 @@ export default function SupervisionIncidentsScreen() {
                       {selectedIncident.title || 'Fiche Incident'}
                     </Text>
                   </View>
+                  <View style={styles.headerActions}>
+                    {isAdmin ? (
+                      <TouchableOpacity
+                        onPress={() => setEditingIncident(selectedIncident)}
+                        style={styles.editIconButton}
+                        disabled={isClosingIncident || isArchivingIncident}
+                        accessibilityRole="button"
+                        accessibilityLabel="Modifier l'incident"
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Ionicons name="create-outline" size={19} color={COLORS.textPrimary} />
+                      </TouchableOpacity>
+                    ) : null}
                   <TouchableOpacity
                     onPress={() => setSelectedIncident(null)}
                     style={styles.closeModalButton}
                   >
                     <Ionicons name="close" size={24} color={COLORS.textPrimary} />
                   </TouchableOpacity>
+                  </View>
                 </View>
 
                 {/* Modal Scroll Content */}
@@ -953,16 +967,6 @@ export default function SupervisionIncidentsScreen() {
 
                 {/* Modal Footer Actions */}
                 {isAdmin && <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={styles.editBtn}
-                    onPress={() => setEditingIncident(selectedIncident)}
-                    disabled={isClosingIncident || isArchivingIncident}
-                    accessibilityRole="button"
-                    accessibilityLabel="Modifier l'incident"
-                  >
-                    <Ionicons name="create-outline" size={18} color={COLORS.textPrimary} />
-                    <Text style={styles.editBtnText}>Modifier l&apos;incident</Text>
-                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[
                       styles.actionStatusBtn,
@@ -1671,23 +1675,19 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 
-  editBtn: {
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: COLORS.background,
-    gap: 8,
+    gap: 12,
   },
 
-  editBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
+  editIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   archiveBtn: {

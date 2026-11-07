@@ -57,8 +57,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [role, setRole] = useState<UserRole | null>(null);
   const [approvalStatus, setApprovalStatus] = useState<UserApprovalStatus | null>(null);
   const authVersion = useRef(0);
+  const currentUserId = useRef<string | null>(null);
 
   const clearAuthState = useCallback(() => {
+    currentUserId.current = null;
     setSession(null);
     setUser(null);
     setRole(null);
@@ -151,6 +153,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         data: { session: restoredSession },
       } = await withTimeout(supabase.auth.getSession(), SESSION_RESTORE_TIMEOUT_MS, 'SESSION_TIMEOUT');
       if (authVersion.current !== version) return;
+      currentUserId.current = restoredSession?.user?.id ?? null;
       setSession(restoredSession);
       setUser(restoredSession?.user ?? null);
       if (restoredSession?.user) {
@@ -189,16 +192,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let profileTimer: ReturnType<typeof setTimeout> | undefined;
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        // A password change or token refresh keeps the screen and only re-checks the role in the background.
+        const isBackgroundUpdate = (event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED')
+          && Boolean(session?.user) && session?.user.id === currentUserId.current;
+        currentUserId.current = session?.user?.id ?? null;
         const version = ++authVersion.current;
         if (profileTimer) clearTimeout(profileTimer);
         setStartupIssue(null);
         setSession(session);
         setUser(session?.user ?? null);
-        setRole(null);
-        setApprovalStatus(null);
+        if (!isBackgroundUpdate) {
+          setRole(null);
+          setApprovalStatus(null);
+        }
         if (session?.user) {
-          setLoading(true);
+          if (!isBackgroundUpdate) setLoading(true);
           // Release the SDK auth lock before a profile query reads the session.
           profileTimer = setTimeout(() => {
             if (authVersion.current !== version) return;

@@ -1,3 +1,4 @@
+import { SrmBottomSheet, SrmSheetActions } from '@/components/ui/srm';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { IncidentAdminService, type Incident } from '@/src/core/services/incidentAdminService';
@@ -8,15 +9,10 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
@@ -142,27 +138,18 @@ export default function AdminIncidentEditModal({ incident, onClose, onSaved }: P
   const close = () => { if (!saving) onClose(); };
 
   return (
-    <Modal visible={incident !== null} animationType="slide" transparent onRequestClose={close}>
-      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Modifier l&apos;incident</Text>
-              {incident ? (
-                <Text style={styles.subtitle}>
-                  {incident.type} · {incident.status === 'open' ? 'En cours' : 'Clôturé'}
-                </Text>
-              ) : null}
-            </View>
-            <TouchableOpacity onPress={close} disabled={saving} accessibilityLabel="Fermer">
-              <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-            </TouchableOpacity>
-          </View>
-
-          {loading ? (
-            <View style={styles.loading}><ActivityIndicator color={COLORS.accent} /></View>
-          ) : (
-            <ScrollView style={styles.form} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <SrmBottomSheet
+      visible={incident !== null}
+      title="Modifier l'incident"
+      subtitle={incident ? `${incident.type} · ${incident.status === 'open' ? 'En cours' : 'Clôturé'}` : undefined}
+      onClose={close}
+      closeDisabled={saving}
+      footer={<SrmSheetActions onCancel={close} onConfirm={handleSave} loading={saving} disabled={loading} />}
+    >
+      {loading ? (
+        <View style={styles.loading}><ActivityIndicator color={COLORS.accent} /></View>
+      ) : (
+        <>
               <Text style={styles.label}>Type d&apos;incident</Text>
               <View style={styles.pickerWrap}>
                 <Picker selectedValue={incidentType} onValueChange={setIncidentType} enabled={!saving} style={styles.picker} dropdownIconColor={COLORS.textPrimary}>
@@ -222,48 +209,14 @@ export default function AdminIncidentEditModal({ incident, onClose, onSaved }: P
                   Le statut, le réseau, la date, la position GPS, les photos et le matériel ne sont pas modifiés ici. Chaque modification est enregistrée dans l&apos;historique.
                 </Text>
               </View>
-            </ScrollView>
-          )}
-
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.cancel} onPress={close} disabled={saving}>
-              <Text style={styles.cancelText}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.confirm} onPress={handleSave} disabled={saving || loading}>
-              {saving ? <ActivityIndicator color={COLORS.textPrimary} size="small" /> : (
-                <>
-                  <Ionicons name="checkmark" size={18} color={COLORS.textPrimary} />
-                  <Text style={styles.confirmText}>Enregistrer</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        </>
+      )}
+    </SrmBottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
-  container: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: RADIUS.xl,
-    borderTopRightRadius: RADIUS.xl,
-    maxHeight: '92%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-  },
-  header: {
-    padding: SPACING.xl,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  title: { ...TYPOGRAPHY.heading, color: COLORS.textPrimary },
-  subtitle: { ...TYPOGRAPHY.label, color: COLORS.textSecondary, marginTop: 2 },
   loading: { padding: SPACING.xl * 2, alignItems: 'center' },
-  form: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.md },
   label: { ...TYPOGRAPHY.labelUppercase, color: COLORS.textSecondary, marginTop: SPACING.md, marginBottom: SPACING.xs },
   input: {
     minHeight: 50,
@@ -300,32 +253,4 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   noteText: { ...TYPOGRAPHY.label, flex: 1, color: '#1D4ED8' },
-  footer: {
-    paddingHorizontal: SPACING.xl,
-    paddingTop: SPACING.lg,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    flexDirection: 'row',
-    gap: SPACING.md,
-  },
-  cancel: {
-    flex: 1,
-    height: 48,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelText: { ...TYPOGRAPHY.bodyBold, color: COLORS.textSecondary },
-  confirm: {
-    flex: 1,
-    height: 48,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  confirmText: { ...TYPOGRAPHY.bodyBold, color: COLORS.textPrimary },
 });

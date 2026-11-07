@@ -93,3 +93,9 @@ export function formatMaterialsSummary(
     .map((material) => `${material.material_name} x${formatMaterialQuantity(material.quantity)}`)
     .join('; ');
 }
+
+export function formatQuantity(value: number): string {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}

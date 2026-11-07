@@ -7,6 +7,8 @@ import {
   SrmScreenHeader,
   SrmSearchField,
   SrmStatusBadge,
+  SrmBottomSheet,
+  SrmSheetActions,
 } from '@/components/ui/srm';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import {
@@ -16,15 +18,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
-  Modal,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
@@ -213,17 +211,14 @@ export default function DepartHtaOptionsScreen() {
         }
       />
 
-      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={closeModal}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editingOption ? 'Modifier le départ' : 'Ajouter un Départ HTA'}</Text>
-              <TouchableOpacity onPress={closeModal} disabled={saving}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalForm}>
+      <SrmBottomSheet
+        visible={modalVisible}
+        title={editingOption ? 'Modifier le départ' : 'Ajouter un Départ HTA'}
+        onClose={closeModal}
+        closeDisabled={saving}
+        footer={<SrmSheetActions onCancel={closeModal} onConfirm={handleSave} loading={saving} />}
+      >
+        <View style={styles.modalForm}>
               <Text style={styles.inputLabel}>Nom</Text>
               <TextInput
                 value={name}
@@ -254,23 +249,7 @@ export default function DepartHtaOptionsScreen() {
                 </View>
               ) : null}
             </View>
-
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={styles.cancelButton} onPress={closeModal} disabled={saving}>
-                <Text style={styles.cancelText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.confirmButton} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color={COLORS.textPrimary} size="small" /> : (
-                  <>
-                    <Ionicons name="checkmark" size={18} color={COLORS.textPrimary} />
-                    <Text style={styles.confirmText}>Enregistrer</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      </SrmBottomSheet>
     </View>
   );
 }
@@ -307,23 +286,7 @@ const styles = StyleSheet.create({
   rowTitle: { ...TYPOGRAPHY.title, color: COLORS.textPrimary },
   rowMeta: { ...TYPOGRAPHY.label, color: COLORS.textSecondary, marginTop: 2 },
   skeletonList: { paddingTop: SPACING.xl },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
-  modalContent: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: RADIUS.xl,
-    borderTopRightRadius: RADIUS.xl,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-  modalHeader: {
-    padding: SPACING.xl,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  modalTitle: { ...TYPOGRAPHY.heading, color: COLORS.textPrimary },
-  modalForm: { padding: SPACING.xl, gap: SPACING.sm },
+  modalForm: { gap: SPACING.sm },
   inputLabel: { ...TYPOGRAPHY.labelUppercase, color: COLORS.textSecondary },
   textInput: {
     height: 50,
@@ -349,32 +312,4 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   warningText: { ...TYPOGRAPHY.label, flex: 1, color: '#1D4ED8' },
-  modalFooter: {
-    paddingHorizontal: SPACING.xl,
-    paddingTop: SPACING.lg,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    flexDirection: 'row',
-    gap: SPACING.md,
-  },
-  cancelButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelText: { ...TYPOGRAPHY.bodyBold, color: COLORS.textSecondary },
-  confirmButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  confirmText: { ...TYPOGRAPHY.bodyBold, color: COLORS.textPrimary },
 });

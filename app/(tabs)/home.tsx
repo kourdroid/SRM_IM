@@ -1,11 +1,12 @@
 import { loadClosureDraft, saveClosureDraft } from '@/db/incidentDrafts';
-import MaterialUsageSelector, { type MaterialUsageChoice } from '@/components/MaterialUsageSelector';
+import ClosureMaterialsForm from '@/components/incidents/ClosureMaterialsForm';
+import { IncidentPhotoStrip } from '@/components/incidents/IncidentPhotos';
+import type { MaterialUsageChoice } from '@/components/MaterialUsageSelector';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, Modal, ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { getIncidentMaterialsByLocalId, insertIncidentMaterials, type IncidentMaterialRow } from '../../db/incidentMaterials';
@@ -13,12 +14,13 @@ import { enqueueStatusUpdate, enqueueSyncMaterials } from '../../db/syncOperatio
 import { useSync } from '../../hooks/useSync';
 import { subscribeSyncCompleted } from '../../lib/syncEvents';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
-import { SrmListSkeleton } from '@/components/ui/srm';
+import { SrmListSkeleton, useSheetBottomPadding } from '@/components/ui/srm';
 import IncidentShareButton from '@/components/IncidentShareButton';
 import {
   NO_MATERIAL_USED_LABEL,
   buildEquipmentSummary,
   createEmptyMaterialFormRow,
+  formatQuantity,
   normalizeMaterialRows,
   type MaterialFormRow,
 } from '@/lib/materials';
@@ -107,6 +109,7 @@ const INCIDENT_LIST_COLUMNS = [
 ].join(', ');
 
 export default function Home() {
+  const sheetBottomPadding = useSheetBottomPadding();
   const { user } = useAuth();
   const db = useSQLiteContext();
   const { isSyncing, syncPendingItems } = useSync(user?.id);
@@ -300,24 +303,12 @@ export default function Home() {
     }
   }, [db, user?.id]);
 
-  const addClosureMaterialRow = () => {
-    setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
-  };
-
-  const removeClosureMaterialRow = (id: string) => {
-    setClosureMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
-  };
-
   // ⚡ Bolt: Wrapped onEndReached callback in useCallback to prevent continuous recreation during scrolling
   const handleEndReached = useCallback(() => {
     if (hasMore && !isLoadingMore) {
       void fetchIncidents(false, incidents.at(-1));
     }
   }, [hasMore, isLoadingMore, fetchIncidents, incidents]);
-
-  const updateClosureMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
-    setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
-  };
 
   // ⚡ Bolt: Wrapped renderItem in useCallback to prevent re-rendering all list items when parent state changes
   const renderIncidentItem = useCallback(({ item }: { item: Incident }) => {
@@ -521,6 +512,7 @@ export default function Home() {
             borderTopLeftRadius: 16,
             borderTopRightRadius: 16,
             padding: 24,
+            paddingBottom: sheetBottomPadding,
             height: '80%',
           }}>
             {/* Modal Handle */}
@@ -649,117 +641,18 @@ export default function Home() {
                   </View>
                 )}
 
-                {mediaUrls.length > 0 && (
-                  <View style={{ marginBottom: 20 }}>
-                    <Text style={{ color: '#6B7280', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 10, letterSpacing: 1.5 }}>
-                      PHOTO
-                    </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {mediaUrls.map((url, index) => (
-                        <Image
-                          key={`${url}-${index}`}
-                          source={{ uri: url }}
-                          style={{ width: 120, height: 120, borderRadius: 8, marginRight: 10, backgroundColor: '#E5E7EB' }}
-                          contentFit="cover"
-                        />
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
+                <IncidentPhotoStrip urls={mediaUrls} />
 
                 <View style={{ flex: 1 }} />
 
                 {selectedIncident.status !== 'closed' && showClosureMaterials && selectedIncidentMaterials.length === 0 ? (
-                  <View style={{ padding: 20, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#FFFFFF' }}>
-                    <Text style={{ color: '#111827', fontSize: 11, textTransform: 'uppercase', fontWeight: '900', marginBottom: 8, letterSpacing: 1.5 }}>
-                      MATÉRIEL UTILISÉ
-                    </Text>
-                    <Text style={{ color: '#6B7280', fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
-                      Déclarez le matériel utilisé ou confirmez qu’aucun matériel n’a été utilisé.
-                    </Text>
-                    <MaterialUsageSelector value={materialUsage} onChange={setMaterialUsage} disabled={isClosingIncident} />
-                    {materialUsage === 'used' && <View style={{ gap: 10 }}>
-                      {closureMaterialRows.map((row, index) => (
-                        <View key={row.id} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                          <TextInput
-                            style={{
-                              flex: 1,
-                              backgroundColor: '#FFFFFF',
-                              borderRadius: 8,
-                              padding: 12,
-                              color: '#111827',
-                              fontSize: 15,
-                              fontWeight: '600',
-                              borderWidth: 1,
-                              borderColor: '#D1D5DB',
-                            }}
-                            value={row.materialName}
-                            onChangeText={(value) => updateClosureMaterialRow(row.id, { materialName: value })}
-                            placeholder={index === 0 ? 'Matériel' : 'Autre matériel'}
-                            placeholderTextColor="#9CA3AF"
-                            editable={!isClosingIncident}
-                          />
-                          <TextInput
-                            style={{
-                              width: 84,
-                              backgroundColor: '#FFFFFF',
-                              borderRadius: 8,
-                              padding: 12,
-                              color: '#111827',
-                              fontSize: 15,
-                              fontWeight: '800',
-                              borderWidth: 1,
-                              borderColor: '#D1D5DB',
-                              textAlign: 'center',
-                            }}
-                            value={row.quantity}
-                            onChangeText={(value) => updateClosureMaterialRow(row.id, { quantity: value })}
-                            placeholder="Qté"
-                            placeholderTextColor="#9CA3AF"
-                            keyboardType="decimal-pad"
-                            editable={!isClosingIncident}
-                          />
-                          {closureMaterialRows.length > 1 ? (
-                            <TouchableOpacity
-                              onPress={() => removeClosureMaterialRow(row.id)}
-                              disabled={isClosingIncident}
-                              style={{
-                                width: 42,
-                                height: 42,
-                                borderRadius: 8,
-                                borderWidth: 1,
-                                borderColor: '#FCA5A5',
-                                backgroundColor: '#FEF2F2',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <Ionicons name="trash-outline" size={18} color="#991B1B" />
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      ))}
-                      <TouchableOpacity
-                        onPress={addClosureMaterialRow}
-                        disabled={isClosingIncident}
-                        style={{
-                          alignSelf: 'flex-start',
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 8,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          borderRadius: 8,
-                          backgroundColor: '#FFFFFF',
-                          borderWidth: 1,
-                          borderColor: '#D1D5DB',
-                        }}
-                      >
-                        <Ionicons name="add" size={18} color="#111827" />
-                        <Text style={{ color: '#111827', fontWeight: '900' }}>Ajouter un matériel</Text>
-                      </TouchableOpacity>
-                    </View>}
-                  </View>
+                  <ClosureMaterialsForm
+                    usage={materialUsage}
+                    onUsageChange={setMaterialUsage}
+                    rows={closureMaterialRows}
+                    onRowsChange={setClosureMaterialRows}
+                    disabled={isClosingIncident}
+                  />
                 ) : null}
 
                 {/* Actions */}
@@ -802,10 +695,4 @@ export default function Home() {
       </Modal>
     </SafeAreaView>
   );
-}
-
-function formatQuantity(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }

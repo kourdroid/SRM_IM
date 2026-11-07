@@ -1,7 +1,7 @@
 {
   "name": "srm",
   "main": "expo-router/entry",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -11,8 +11,9 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit --pretty false",
     "doctor": "expo-doctor",
-    "test": "node tests/sync-regression.cjs && node tests/material-selector-regression.cjs && node tests/notification-client-regression.cjs && node tests/notification-inbox-regression.cjs && node tests/incident-share-regression.cjs && node tests/director-ui-regression.cjs",
+    "test": "node tests/sync-regression.cjs && node tests/material-selector-regression.cjs && node tests/notification-client-regression.cjs && node tests/notification-inbox-regression.cjs && node tests/password-flow-regression.cjs && node tests/duration-regression.cjs && node tests/incident-share-regression.cjs && node tests/director-ui-regression.cjs",
     "test:materials:postgres": "node tests/material-closure-postgres.cjs",
+    "test:references:postgres": "node tests/reference-options-postgres.cjs",
     "backend:check": "deno check --config supabase/functions/generate-report-export/deno.json supabase/functions/generate-report-export/index.ts && deno check --config supabase/functions/send-incident-notifications/deno.json supabase/functions/send-incident-notifications/index.ts && deno test supabase/functions/send-incident-notifications/worker_test.ts",
     "release:check": "pnpm test && pnpm typecheck && pnpm lint && pnpm backend:check && pnpm run doctor",
     "build:preview": "eas build --platform android --profile preview",

@@ -6,6 +6,7 @@ import {
 } from '@/components/ui/srm';
 import { useAuth } from '@/contexts/AuthContext';
 import { clearLocalSupabaseSession } from '@/lib/supabase';
+import { CHANGE_PASSWORD_ROUTE } from '@/src/core/constants/routes';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
@@ -79,6 +80,12 @@ export default function SupervisionProfileScreen() {
         </View>
 
         <SrmPanel style={styles.panel}>
+          <SrmSettingsRow
+            icon="key-outline"
+            title="Changer le mot de passe"
+            description="Modifier le mot de passe de votre compte."
+            onPress={() => router.push(CHANGE_PASSWORD_ROUTE)}
+          />
           <SrmSettingsRow
             icon="log-out-outline"
             iconBackground={COLORS.signalRedTint}

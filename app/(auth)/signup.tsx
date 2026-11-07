@@ -1,3 +1,4 @@
+import { SrmPasswordField } from '@/components/ui/srm';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { PENDING_APPROVAL_ROUTE } from '@/src/core/constants/routes';
 import { supabase, toSupabaseUserMessage } from '@/lib/supabase';
@@ -114,20 +115,14 @@ export default function Signup() {
             />
           </View>
 
-          <View style={styles.inputRow}>
-            <Ionicons name="lock-closed-outline" size={20} color={COLORS.textMuted} />
-            <TextInput
-              ref={passwordInputRef}
-              style={styles.input}
-              placeholder="Mot de passe (6+ caractères)"
-              placeholderTextColor={COLORS.textMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              returnKeyType="done"
-              onSubmitEditing={signUpWithEmail}
-            />
-          </View>
+          <SrmPasswordField
+            inputRef={passwordInputRef}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Mot de passe (6+ caractères)"
+            autoComplete="new-password"
+            onSubmitEditing={signUpWithEmail}
+          />
 
           <TouchableOpacity
             style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}

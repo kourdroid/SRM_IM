@@ -1,26 +1,67 @@
+import { COLORS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { BarChart } from 'react-native-gifted-charts';
 
 type Props = {
-  data: { value: number; label: string; frontColor?: string }[];
+  data: { value: number; label: string }[];
   title: string;
 };
 
+const MONTHS: Record<string, { short: string; full: string }> = {
+  Jan: { short: 'Jan', full: 'Janvier' },
+  Feb: { short: 'Fév', full: 'Février' },
+  Mar: { short: 'Mar', full: 'Mars' },
+  Apr: { short: 'Avr', full: 'Avril' },
+  May: { short: 'Mai', full: 'Mai' },
+  Jun: { short: 'Juin', full: 'Juin' },
+  Jul: { short: 'Juil', full: 'Juillet' },
+  Aug: { short: 'Août', full: 'Août' },
+  Sep: { short: 'Sep', full: 'Septembre' },
+  Oct: { short: 'Oct', full: 'Octobre' },
+  Nov: { short: 'Nov', full: 'Novembre' },
+  Dec: { short: 'Déc', full: 'Décembre' },
+};
+
 export default function CustomBarChart({ data, title }: Props) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const selected = selectedIndex === null ? undefined : data[selectedIndex];
+  const highest = Math.max(1, ...data.map(point => point.value));
+
+  const bars = data.map((point, index) => {
+    const isSelected = index === selectedIndex;
+    return {
+      value: point.value,
+      label: MONTHS[point.label]?.short ?? point.label,
+      frontColor: isSelected ? COLORS.textPrimary : COLORS.signalBlue,
+      topLabelComponent: isSelected
+        ? () => <Text style={styles.barValue}>{point.value}</Text>
+        : undefined,
+    };
+  });
+
   return (
-    <View style={styles.card}>
+    <View>
       <Text style={styles.title}>{title}</Text>
-      <View style={styles.chartContainer}>
+      <Text style={[styles.caption, selected && styles.captionActive]} accessibilityLiveRegion="polite">
+        {selected
+          ? `${MONTHS[selected.label]?.full ?? selected.label} : ${selected.value} incident${selected.value > 1 ? 's' : ''}`
+          : 'Touchez un mois pour voir son nombre d’incidents.'}
+      </Text>
+      <View style={styles.chart}>
         <BarChart
-          data={data}
+          data={bars}
           barWidth={22}
           noOfSections={4}
+          maxValue={Math.ceil(highest * 1.2)}
           barBorderRadius={4}
-          frontColor="#2563eb"
           yAxisThickness={0}
           xAxisThickness={0}
           hideRules
           isAnimated
+          onPress={(_item: unknown, index: number) => {
+            setSelectedIndex(current => current === index ? null : index);
+          }}
         />
       </View>
     </View>
@@ -28,26 +69,26 @@ export default function CustomBarChart({ data, title }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    marginBottom: 16,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
   title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 16,
+    ...TYPOGRAPHY.title,
+    color: COLORS.textPrimary,
   },
-  chartContainer: {
+  caption: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textSecondary,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.lg,
+  },
+  captionActive: {
+    color: COLORS.textPrimary,
+  },
+  chart: {
     alignItems: 'center',
+  },
+  barValue: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    marginBottom: SPACING.xs,
   },
 });

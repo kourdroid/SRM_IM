@@ -1,9 +1,13 @@
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode, type Ref } from 'react';
 import {
   ActivityIndicator,
+  DimensionValue,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
+  ScrollView,
   StyleProp,
   StyleSheet,
   Text,
@@ -13,8 +17,168 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type IconName = keyof typeof Ionicons.glyphMap;
+
+// Edge-to-edge sheets draw behind the navigation bar, so their padding must include its real height.
+export function useSheetBottomPadding(extra: number = SPACING.lg): number {
+  return useSafeAreaInsets().bottom + extra;
+}
+
+interface BottomSheetProps {
+  visible: boolean;
+  title?: string;
+  subtitle?: string;
+  header?: ReactNode;
+  headerActions?: ReactNode;
+  onClose: () => void;
+  closeDisabled?: boolean;
+  footer?: ReactNode;
+  scrollable?: boolean;
+  minHeight?: DimensionValue;
+  animationType?: 'slide' | 'fade';
+  children: ReactNode;
+}
+
+export function SrmBottomSheet({
+  visible,
+  title,
+  subtitle,
+  header,
+  headerActions,
+  onClose,
+  closeDisabled,
+  footer,
+  scrollable = true,
+  minHeight,
+  animationType = 'slide',
+  children,
+}: BottomSheetProps) {
+  const paddingBottom = useSheetBottomPadding();
+  const close = () => {
+    if (!closeDisabled) onClose();
+  };
+
+  return (
+    <Modal visible={visible} animationType={animationType} transparent onRequestClose={close}>
+      <KeyboardAvoidingView style={styles.sheetOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[styles.sheet, { paddingBottom, minHeight }]}>
+          <View style={styles.sheetHeader}>
+            {header ?? (
+              <View style={styles.sheetTitleBlock}>
+                <Text style={styles.sheetTitle} numberOfLines={1}>{title}</Text>
+                {subtitle ? <Text style={styles.sheetSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
+              </View>
+            )}
+            <View style={styles.sheetHeaderActions}>
+              {headerActions}
+              <TouchableOpacity
+                onPress={close}
+                disabled={closeDisabled}
+                style={styles.sheetClose}
+                accessibilityRole="button"
+                accessibilityLabel="Fermer"
+              >
+                <Ionicons name="close" size={22} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {scrollable ? (
+            <ScrollView
+              style={styles.sheetBody}
+              contentContainerStyle={styles.sheetBodyContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={styles.sheetBody}>{children}</View>
+          )}
+
+          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+interface SheetActionsProps {
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmLabel?: string;
+  confirmIcon?: IconName;
+  loading?: boolean;
+  disabled?: boolean;
+}
+
+export function SrmSheetActions({
+  onCancel,
+  onConfirm,
+  confirmLabel = 'Enregistrer',
+  confirmIcon = 'checkmark',
+  loading,
+  disabled,
+}: SheetActionsProps) {
+  return (
+    <>
+      <SrmActionButton label="Annuler" variant="secondary" onPress={onCancel} disabled={loading} style={styles.sheetAction} />
+      <SrmActionButton
+        label={confirmLabel}
+        icon={confirmIcon}
+        onPress={onConfirm}
+        loading={loading}
+        disabled={disabled}
+        style={styles.sheetAction}
+      />
+    </>
+  );
+}
+
+interface KpiCardProps {
+  icon: IconName;
+  iconColor: string;
+  iconBackground: string;
+  label: string;
+  value: string | number;
+  valueColor?: string;
+  onPress?: () => void;
+  style?: StyleProp<ViewStyle>;
+}
+
+export function SrmKpiCard({
+  icon,
+  iconColor,
+  iconBackground,
+  label,
+  value,
+  valueColor = COLORS.textPrimary,
+  onPress,
+  style,
+}: KpiCardProps) {
+  const Container = onPress ? TouchableOpacity : View;
+
+  return (
+    <Container
+      style={[styles.kpiCard, style]}
+      onPress={onPress}
+      activeOpacity={0.78}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={`${label} : ${value}`}
+    >
+      <View style={styles.kpiTop}>
+        <View style={[styles.kpiIcon, { backgroundColor: iconBackground }]}>
+          <Ionicons name={icon} size={18} color={iconColor} />
+        </View>
+        {onPress ? <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} /> : null}
+      </View>
+      <Text style={styles.kpiLabel}>{label}</Text>
+      <Text style={[styles.kpiValue, { color: valueColor }]}>{value}</Text>
+    </Container>
+  );
+}
 
 interface ScreenHeaderProps {
   kicker?: string;
@@ -228,6 +392,63 @@ export function SrmSearchField({
           <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
         </TouchableOpacity>
       ) : null}
+    </View>
+  );
+}
+
+interface PasswordFieldProps {
+  value: string;
+  placeholder: string;
+  onChangeText: (value: string) => void;
+  autoComplete?: 'current-password' | 'new-password' | 'off';
+  editable?: boolean;
+  onSubmitEditing?: () => void;
+  returnKeyType?: 'next' | 'done';
+  inputRef?: Ref<TextInput>;
+  style?: StyleProp<ViewStyle>;
+}
+
+export function SrmPasswordField({
+  value,
+  placeholder,
+  onChangeText,
+  autoComplete = 'off',
+  editable = true,
+  onSubmitEditing,
+  returnKeyType = 'done',
+  inputRef,
+  style,
+}: PasswordFieldProps) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <View style={[styles.passwordRow, style]}>
+      <Ionicons name="lock-closed-outline" size={20} color={COLORS.textMuted} />
+      <TextInput
+        ref={inputRef}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={COLORS.textMuted}
+        style={styles.passwordInput}
+        secureTextEntry={!visible}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete={autoComplete}
+        editable={editable}
+        onSubmitEditing={onSubmitEditing}
+        returnKeyType={returnKeyType}
+        submitBehavior={returnKeyType === 'next' ? 'submit' : 'blurAndSubmit'}
+      />
+      <TouchableOpacity
+        onPress={() => setVisible(current => !current)}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+      >
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={20} color={COLORS.textMuted} />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -525,6 +746,122 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
+  },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    maxHeight: '90%',
+  },
+  sheetHeader: {
+    padding: SPACING.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+  },
+  sheetTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sheetTitle: {
+    ...TYPOGRAPHY.heading,
+    color: COLORS.textPrimary,
+  },
+  sheetSubtitle: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  sheetHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  sheetClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetBody: {
+    flexShrink: 1,
+  },
+  sheetBodyContent: {
+    padding: SPACING.xl,
+  },
+  sheetFooter: {
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.lg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    flexDirection: 'row',
+    gap: SPACING.md,
+  },
+  sheetAction: {
+    flex: 1,
+  },
+  kpiCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  kpiTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  kpiIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kpiLabel: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+  },
+  kpiValue: {
+    ...TYPOGRAPHY.display,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.lg,
+    height: 56,
+    backgroundColor: COLORS.surface,
+    gap: SPACING.md,
+  },
+  passwordInput: {
+    flex: 1,
+    color: COLORS.textPrimary,
+    fontSize: 15,
   },
   searchInput: {
     flex: 1,

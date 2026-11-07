@@ -12,8 +12,8 @@ const navigations = [];
 let controls = [];
 const component = name => props => {
   if (props.onPress) controls.push(props);
-  const { children, title, label, description, subtitle, kicker, rightSlot, ListHeaderComponent, data, renderItem } = props;
-  return React.createElement(name.toLowerCase(), null, kicker, title, subtitle, label, description, rightSlot, ListHeaderComponent,
+  const { children, title, label, description, subtitle, kicker, rightSlot, ListHeaderComponent, data, renderItem, header, headerActions, footer } = props;
+  return React.createElement(name.toLowerCase(), null, kicker, title, subtitle, label, description, rightSlot, ListHeaderComponent, header, headerActions, footer,
     data?.map((item, index) => React.createElement(React.Fragment, { key: index }, renderItem({ item }))), children);
 };
 const native = new Proxy({
@@ -28,7 +28,7 @@ function load(relative, cache = new Map()) {
     useState(initial) {
       if (initial === true) return [false, () => {}];
       if (relative.endsWith('NotificationsScreen.tsx') && Array.isArray(initial)) return [[{ id: 'notification', incident_id: 'incident', created_at: '2026-11-01T12:00:00Z', incidents: { type: 'BT' } }], () => {}];
-      if (initial === null) {
+      if (initial === null && /(Dashboard|Incidents)Screen\.tsx$/.test(relative)) {
         nullState += 1;
         const incidentSlot = relative.endsWith('DashboardScreen.tsx') ? 3 : 1;
         if (nullState === incidentSlot) return [selectedIncident, () => {}];
@@ -48,10 +48,10 @@ function load(relative, cache = new Map()) {
     if (name === '@expo/vector-icons') return { Ionicons: component('Icon') };
     if (name === '@shopify/flash-list') return { FlashList: component('List') };
     if (name === 'expo-image') return { Image: component('Image') };
-    if (name === 'react-native-safe-area-context') return { SafeAreaView: component('SafeArea') };
+    if (name === 'react-native-safe-area-context') return { SafeAreaView: component('SafeArea'), useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) };
     if (name === 'expo-constants') return { __esModule: true, default: { expoConfig: { version: 'test' } } };
     if (name.startsWith('@/src/core/services/') || name.startsWith('@/lib/')) return {};
-    if (name === '@/components/ui/srm') return new Proxy({}, { get: (_, key) => component(key) });
+    if (name === '@/components/ui/srm') return new Proxy({}, { get: (_, key) => key === 'useSheetBottomPadding' ? () => 0 : component(key) });
     if (name.includes('CustomBarChart') || name.includes('MaterialUsageSelector')) return { __esModule: true, default: component('Widget') };
     if (name.startsWith('@/')) {
       const relativePath = name.slice(2);
@@ -63,7 +63,7 @@ function load(relative, cache = new Map()) {
   };
   // Material rows are initialized even when editing is unavailable.
   const requireWithMaterials = name => name === '@/lib/materials'
-    ? { createEmptyMaterialFormRow: () => ({}), normalizeMaterialRows: () => [] }
+    ? { createEmptyMaterialFormRow: () => ({}), normalizeMaterialRows: () => [], formatQuantity: String }
     : localRequire(name);
   vm.runInNewContext(`(function(require,module,exports){${source}\n})`, { console, Date, Intl, Set }, { filename })
     (requireWithMaterials, module, module.exports);
@@ -97,9 +97,20 @@ for (const screen of ['Dashboard', 'Incidents']) {
     role = currentRole;
     selectedIncident = incident;
     const Screen = load(`components/screens/Supervision${screen}Screen.tsx`).default;
+    controls = [];
     const html = renderToStaticMarkup(React.createElement(Screen));
     assert.equal(html.includes('Clôturer'), role === 'admin', `${screen}: only admins can close incidents`);
-    if (screen === 'Incidents') assert.equal(html.includes('Supprimer'), role === 'admin', 'Only admins can archive incidents');
+    assert.equal(html.includes('Supprimer'), role === 'admin', 'Only admins can archive incidents');
+    if (screen === 'Dashboard') {
+      for (const [label, expected] of [['En cours', { status: 'open' }], ['Clôturés', { status: 'closed' }], ['Réclamations', { reclamation: 'true' }], ['Total', {}]]) {
+        controls.find(control => control.label === label).onPress();
+        const target = navigations.pop();
+        assert.equal(target.pathname, `/(${role})/incidents`);
+        const { filterAt, ...filters } = target.params;
+        assert.ok(filterAt, 'Each KPI press must re-apply its filter');
+        assert.deepEqual(filters, expected);
+      }
+    }
     assert.ok(!html.includes('LECTURE SEULE'));
     if (role === 'director' && screen === 'Dashboard') assert.ok(html.includes('Administrateur'));
   }

@@ -1,34 +1,23 @@
 import { useAuth } from '@/contexts/AuthContext';
-import MaterialUsageSelector, { type MaterialUsageChoice } from '@/components/MaterialUsageSelector';
-import { SrmSkeletonBlock, SrmSkeletonCard } from '@/components/ui/srm';
+import IncidentCard from '@/components/incidents/IncidentCard';
+import IncidentDetailSheet from '@/components/incidents/IncidentDetailSheet';
+import { SrmKpiCard, SrmSkeletonBlock, SrmSkeletonCard } from '@/components/ui/srm';
 import CustomBarChart from '@/components/CustomBarChart';
-import {
-  NO_MATERIAL_USED_LABEL,
-  buildEquipmentSummary,
-  createEmptyMaterialFormRow,
-  normalizeMaterialRows,
-  type MaterialFormRow,
-} from '@/lib/materials';
 import { type ChartDataPoint, type DashboardStats } from '@/src/core/entities/admin';
 import { AdminService } from '@/src/core/services/adminService';
 import { IncidentAdminService, type Incident } from '@/src/core/services/incidentAdminService';
 import { countUnreadAdminNotifications } from '@/src/core/services/adminNotificationService';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
+import { durationPartsFromDays, type DurationPart } from '@/src/core/utils/duration';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
-  KeyboardAvoidingView,
-  Modal,
 } from 'react-native';
 
 // ─── Color Palette ───────────────────────────────────────────────
@@ -65,10 +54,6 @@ export default function SupervisionDashboardScreen() {
   const [resolutionStats, setResolutionStats] = useState({ avgDays: 0, maxDays: 0 });
   const [latestIncidents, setLatestIncidents] = useState<Incident[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
-  const [showClosureMaterials, setShowClosureMaterials] = useState(false);
-  const [materialUsage, setMaterialUsage] = useState<MaterialUsageChoice>(null);
-  const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
-  const [isClosingIncident, setIsClosingIncident] = useState(false);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -100,112 +85,36 @@ export default function SupervisionDashboardScreen() {
     return () => { active = false; };
   }, []));
 
-  const openIncidentDetails = (incident: Incident) => {
-    setSelectedIncident(incident);
-    setShowClosureMaterials(false);
-    setMaterialUsage(null);
-    setClosureMaterialRows([createEmptyMaterialFormRow()]);
-  };
-
-  const addClosureMaterialRow = () => {
-    setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
-  };
-
-  const removeClosureMaterialRow = (id: string) => {
-    setClosureMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
-  };
-
-  const updateClosureMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
-    setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
-  };
-
-  const handleToggleStatusInModal = async (incident: Incident) => {
-    if (!isAdmin || isClosingIncident) return;
-    const newStatus = incident.status === 'open' ? 'closed' : 'open';
-    const existingMaterials = incident.materials || [];
-    const noMaterialUsed = incident.status === 'open' && existingMaterials.length === 0 && materialUsage === 'none';
-    const normalizedMaterials = noMaterialUsed ? [] : normalizeMaterialRows(closureMaterialRows);
-    if (incident.status === 'open' && existingMaterials.length === 0 && !showClosureMaterials) {
-      setShowClosureMaterials(true);
-      return;
-    }
-    if (incident.status === 'open' && existingMaterials.length === 0 && materialUsage === null) {
-      Alert.alert('Matériel utilisé', 'Choisissez avec matériel ou aucun matériel utilisé.');
-      return;
-    }
-    if (incident.status === 'open' && normalizedMaterials === null) {
-      Alert.alert('Matériel invalide', 'Chaque ligne de matériel doit avoir un nom et une quantité positive.');
-      return;
-    }
-    if (incident.status === 'open' && existingMaterials.length === 0 && !noMaterialUsed && (normalizedMaterials?.length ?? 0) === 0) {
-      Alert.alert('Matériel requis', "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
-      return;
-    }
-    const closureMaterials = normalizedMaterials ?? [];
-
+  // Numbers change behind an open sheet, so this refresh must not swap the screen for the skeleton.
+  const refreshAfterChange = async () => {
     try {
-      setIsClosingIncident(true);
-      const nextMaterials = incident.status === 'open' && closureMaterials.length > 0
-        ? closureMaterials.map(material => ({
-          material_name: material.material_name,
-          quantity: material.quantity,
-        }))
-        : existingMaterials;
-      let nextEquipmentUsed = incident.equipment_used;
-      if (noMaterialUsed) nextEquipmentUsed = NO_MATERIAL_USED_LABEL;
-      else if (closureMaterials.length > 0) nextEquipmentUsed = buildEquipmentSummary(closureMaterials);
-      else if (incident.status === 'closed' && incident.no_material_used) nextEquipmentUsed = '';
-
-      if (incident.status === 'open' && (closureMaterials.length > 0 || noMaterialUsed)) {
-        await IncidentAdminService.closeIncidentWithMaterials({
-          id: incident.id,
-          materials: closureMaterials,
-          no_material_used: noMaterialUsed,
-        });
-      } else {
-        await IncidentAdminService.updateIncidentStatus({ id: incident.id, status: newStatus });
-      }
-      // Update local state
-      setLatestIncidents(prev => prev.map(i => i.id === incident.id ? {
-        ...i,
-        status: newStatus,
-        no_material_used: noMaterialUsed,
-        materials: nextMaterials,
-        equipment_used: nextEquipmentUsed,
-        materials_summary: nextEquipmentUsed,
-      } : i));
-      setSelectedIncident(prev => prev && prev.id === incident.id ? {
-        ...prev,
-        status: newStatus,
-        no_material_used: noMaterialUsed,
-        materials: nextMaterials,
-        equipment_used: nextEquipmentUsed,
-        materials_summary: nextEquipmentUsed,
-      } : prev);
-      setShowClosureMaterials(false);
-      setMaterialUsage(null);
-      setClosureMaterialRows([createEmptyMaterialFormRow()]);
-      
-      // Refresh KPI statistics
-      const [newStats, resolution] = await Promise.all([
+      const [newStats, chartPoints, resolution, latest] = await Promise.all([
         AdminService.getDashboardStats(),
-        AdminService.getResolutionStats()
+        AdminService.getMonthlyIncidents(new Date().getFullYear()),
+        AdminService.getResolutionStats(),
+        IncidentAdminService.getLatestOpenIncidents(3),
       ]);
       setStats(newStats);
+      setMonthlyData(chartPoints);
       setResolutionStats(resolution);
-      
-      Alert.alert('Succès', `L'incident a été ${newStatus === 'closed' ? 'clôturé' : 'rouvert'}.`);
-    } catch (e: any) {
-      Alert.alert('Erreur', e.message || 'Impossible de mettre à jour le statut');
-    } finally {
-      setIsClosingIncident(false);
+      setLatestIncidents(latest);
+    } catch (err) {
+      console.error('Failed to refresh admin stats', err);
     }
   };
 
-  const openIncidentMap = (incident: Incident) => {
-    if (incident.latitude == null || incident.longitude == null) return;
-    const query = `${incident.latitude},${incident.longitude}`;
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  const handleIncidentUpdated = (id: string, patch: Partial<Incident>) => {
+    setSelectedIncident(prev => prev && prev.id === id ? { ...prev, ...patch } : prev);
+    void refreshAfterChange();
+  };
+
+  const handleIncidentArchived = () => {
+    setSelectedIncident(null);
+    void refreshAfterChange();
+  };
+
+  const openIncidents = (filters: { status?: 'open' | 'closed'; reclamation?: 'true'; period?: '30days' }) => {
+    router.push({ pathname: incidentsRoute, params: { ...filters, filterAt: String(Date.now()) } } as Href);
   };
 
   if (loading) {
@@ -246,70 +155,71 @@ export default function SupervisionDashboardScreen() {
 
         {/* ─── Stats Cards ─────────────────────────────────────────── */}
         <View style={styles.statsGrid}>
-          {/* Total Incidents */}
-          <View style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: '#EFF6FF' }]}>
-              <Ionicons name="layers-outline" size={18} color={COLORS.statBlue} />
-            </View>
-            <Text style={styles.statLabel}>Total</Text>
-            <Text style={[styles.statValue, { color: COLORS.textPrimary }]}>
-              {stats.total}
-            </Text>
-          </View>
-
-          {/* Open Issues */}
-          <View style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: '#FEF2F2' }]}>
-              <Ionicons name="alert-circle-outline" size={18} color={COLORS.statRed} />
-            </View>
-            <Text style={styles.statLabel}>En cours</Text>
-            <Text style={[styles.statValue, { color: COLORS.statRed }]}>
-              {stats.open}
-            </Text>
-          </View>
-
-          {/* Resolved */}
-          <View style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: '#F0FDF4' }]}>
-              <Ionicons name="checkmark-circle-outline" size={18} color={COLORS.statGreen} />
-            </View>
-            <Text style={styles.statLabel}>Clôturés</Text>
-            <Text style={[styles.statValue, { color: COLORS.statGreen }]}>
-              {stats.closed}
-            </Text>
-          </View>
-
-          {/* Reclamations */}
-          <View style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: '#FFFBEB' }]}>
-              <Ionicons name="warning-outline" size={18} color={COLORS.statOrange} />
-            </View>
-            <Text style={styles.statLabel}>Réclamations</Text>
-            <Text style={[styles.statValue, { color: COLORS.statOrange }]}>
-              {stats.reclamations}
-            </Text>
-          </View>
+          <SrmKpiCard
+            icon="layers-outline"
+            iconColor={COLORS.statBlue}
+            iconBackground="#EFF6FF"
+            label="Total"
+            value={stats.total}
+            onPress={() => openIncidents({})}
+            style={styles.statCard}
+          />
+          <SrmKpiCard
+            icon="alert-circle-outline"
+            iconColor={COLORS.statRed}
+            iconBackground="#FEF2F2"
+            label="En cours"
+            value={stats.open}
+            valueColor={COLORS.statRed}
+            onPress={() => openIncidents({ status: 'open' })}
+            style={styles.statCard}
+          />
+          <SrmKpiCard
+            icon="checkmark-circle-outline"
+            iconColor={COLORS.statGreen}
+            iconBackground="#F0FDF4"
+            label="Clôturés"
+            value={stats.closed}
+            valueColor={COLORS.statGreen}
+            onPress={() => openIncidents({ status: 'closed' })}
+            style={styles.statCard}
+          />
+          <SrmKpiCard
+            icon="warning-outline"
+            iconColor={COLORS.statOrange}
+            iconBackground="#FFFBEB"
+            label="Réclamations"
+            value={stats.reclamations}
+            valueColor={COLORS.statOrange}
+            onPress={() => openIncidents({ reclamation: 'true' })}
+            style={styles.statCard}
+          />
         </View>
 
         {/* ─── Resolution KPIs (30 days average / max) ─────────────── */}
-        <View style={styles.resolutionContainer}>
-          <Text style={styles.sectionTitle}>Performance de clôture (30j)</Text>
+        <TouchableOpacity
+          style={styles.resolutionContainer}
+          onPress={() => openIncidents({ status: 'closed', period: '30days' })}
+          activeOpacity={0.78}
+          accessibilityRole="button"
+          accessibilityLabel="Voir les incidents clôturés sur 30 jours"
+        >
+          <View style={styles.resolutionTitleRow}>
+            <Text style={styles.sectionTitle}>Performance de clôture (30j)</Text>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </View>
           <View style={styles.resolutionRow}>
             <View style={styles.resolutionKpi}>
-              <Text style={styles.resolutionValue}>
-                {resolutionStats.avgDays.toFixed(1)} <Text style={{ fontSize: 14, fontWeight: 'normal' }}>Jours</Text>
-              </Text>
+              <DurationValue parts={durationPartsFromDays(resolutionStats.avgDays)} />
               <Text style={styles.resolutionLabel}>Durée moyenne</Text>
             </View>
             <View style={styles.resolutionKpiDivider} />
             <View style={styles.resolutionKpi}>
-              <Text style={styles.resolutionValue}>
-                {resolutionStats.maxDays.toFixed(1)} <Text style={{ fontSize: 14, fontWeight: 'normal' }}>Jours</Text>
-              </Text>
+              <DurationValue parts={durationPartsFromDays(resolutionStats.maxDays)} />
               <Text style={styles.resolutionLabel}>Durée maximale</Text>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* ─── Charts ──────────────────────────────────────────────── */}
         <View style={styles.chartContainer}>
@@ -327,42 +237,7 @@ export default function SupervisionDashboardScreen() {
             </View>
           ) : (
             latestIncidents.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.incidentCard}
-                onPress={() => openIncidentDetails(item)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.incidentCardMain}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{item.type}</Text>
-                    </View>
-                    <Text style={styles.incidentDate}>
-                      {new Date(item.created_at).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <Text style={styles.incidentTitle} numberOfLines={1}>
-                    {item.title || item.incident_type}
-                  </Text>
-                  <Text style={styles.incidentDesc} numberOfLines={2}>
-                    {item.description || 'Aucune description fournie'}
-                  </Text>
-                  <View style={styles.incidentCardFooter}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Ionicons name="navigate-outline" size={14} color={COLORS.textSecondary} />
-                      <Text style={styles.incidentLocation}>
-                        {item.commune_name} • {item.village}
-                      </Text>
-                    </View>
-                    {item.reclamation && (
-                      <View style={styles.reclamationBadge}>
-                        <Text style={styles.reclamationBadgeText}>RÉCLAMATION</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </TouchableOpacity>
+              <IncidentCard key={item.id} incident={item} onPress={setSelectedIncident} style={styles.incidentCard} />
             ))
           )}
 
@@ -379,246 +254,26 @@ export default function SupervisionDashboardScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* ─── Incident Detail Modal ─────────────────────────────── */}
-      <Modal
-        visible={selectedIncident !== null}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setSelectedIncident(null)}
-      >
-        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.modalContent}>
-            {selectedIncident && (
-              <>
-                {/* Modal Header */}
-                <View style={styles.modalHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
-                    </View>
-                    <Text style={styles.modalTitle} numberOfLines={1}>
-                      {selectedIncident.title || "Détails de l'incident"}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setSelectedIncident(null)}
-                    style={styles.closeModalButton}
-                  >
-                    <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Modal Scroll Content */}
-                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
-                  {/* Status Badge */}
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <View style={[
-                      styles.statusBadge,
-                      { backgroundColor: selectedIncident.status === 'open' ? '#FEF2F2' : '#F0FDF4' }
-                    ]}>
-                      <Text style={[
-                        styles.statusBadgeText,
-                        { color: selectedIncident.status === 'open' ? COLORS.statRed : COLORS.statGreen }
-                      ]}>
-                        {selectedIncident.status === 'open' ? 'EN COURS' : 'CLÔTURÉ'}
-                      </Text>
-                    </View>
-                    <Text style={styles.modalDate}>
-                      Créé le {new Date(selectedIncident.created_at).toLocaleString()}
-                    </Text>
-                  </View>
-
-                  {/* Incident Type Details */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>{"Type d'incident"}</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.incident_type}</Text>
-                  </View>
-
-                  {selectedIncident.type === 'MT' && selectedIncident.depart_hta ? (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Départ HTA</Text>
-                      <Text style={styles.detailValue}>{selectedIncident.depart_hta}</Text>
-                    </View>
-                  ) : null}
-
-                  {/* Commune & Village */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Commune</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.commune_name}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Village / Quartier</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.village}</Text>
-                  </View>
-
-                  {selectedIncident.latitude != null && selectedIncident.longitude != null && (
-                    <TouchableOpacity
-                      style={styles.detailRow}
-                      onPress={() => openIncidentMap(selectedIncident)}
-                    >
-                      <Text style={styles.detailLabel}>Position GPS</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedIncident.latitude.toFixed(6)}, {selectedIncident.longitude.toFixed(6)}
-                      </Text>
-                      <Text style={styles.mapLinkText}>Ouvrir dans Google Maps</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Creator */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Rapporté par</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.created_by_name || 'Agent Terrain'}</Text>
-                  </View>
-
-                  {selectedIncident.status === 'closed' && (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Clôturé par</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedIncident.closed_by_name || 'Utilisateur inconnu'}
-                      </Text>
-                      {selectedIncident.closed_at && (
-                        <Text style={styles.mapLinkText}>
-                          {new Date(selectedIncident.closed_at).toLocaleString()}
-                        </Text>
-                      )}
-                    </View>
-                  )}
-
-                  {/* Equipment */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Matériel utilisé</Text>
-                    {selectedIncident.materials && selectedIncident.materials.length > 0 ? (
-                      <View style={styles.materialList}>
-                        {selectedIncident.materials.map((material) => (
-                          <View key={`${material.material_name}-${material.quantity}`} style={styles.materialRow}>
-                            <Text style={styles.materialName}>{material.material_name}</Text>
-                            <Text style={styles.materialQuantity}>x{formatQuantity(material.quantity)}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Non renseigné'}</Text>
-                    )}
-                  </View>
-
-                  {/* Description */}
-                  <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.detailLabel}>Description</Text>
-                    <Text style={styles.detailDescValue}>{selectedIncident.description || 'Aucune description fournie.'}</Text>
-                  </View>
-
-                  {/* Reclamation Info if applicable */}
-                  {selectedIncident.reclamation && (
-                    <View style={styles.reclamationDetailsBlock}>
-                      <Text style={styles.reclamationDetailsTitle}>Informations Réclamation</Text>
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={styles.reclamationTextItem}>
-                          <Text style={{ fontWeight: 'bold' }}>Nom réclamant: </Text>
-                          {selectedIncident.reclamation_name || 'N/A'}
-                        </Text>
-                        <Text style={styles.reclamationTextItem}>
-                          <Text style={{ fontWeight: 'bold' }}>Déposée par: </Text>
-                          {selectedIncident.reclamation_by || 'N/A'}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Media attachments */}
-                  {selectedIncident.media_urls && selectedIncident.media_urls.length > 0 && (
-                    <View style={{ marginTop: 16, marginBottom: 24 }}>
-                      <Text style={styles.detailLabel}>Pièces jointes ({selectedIncident.media_urls.length})</Text>
-                      <ScrollView horizontal={true} showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
-                        {selectedIncident.media_urls.map((url, i) => (
-                          <Image
-                            key={i}
-                            source={{ uri: url }}
-                            style={styles.attachmentThumbnail}
-                            contentFit="cover"
-                          />
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                {isAdmin && selectedIncident.status === 'open' && showClosureMaterials && (!selectedIncident.materials || selectedIncident.materials.length === 0) ? (
-                  <View style={styles.closureMaterialBlock}>
-                    <Text style={styles.closureMaterialTitle}>MATÉRIEL UTILISÉ</Text>
-                    <Text style={styles.closureMaterialHelp}>
-                      Déclarez le matériel utilisé ou confirmez qu’aucun matériel n’a été utilisé.
-                    </Text>
-                    <MaterialUsageSelector value={materialUsage} onChange={setMaterialUsage} disabled={isClosingIncident} />
-                    {materialUsage === 'used' && <View style={styles.closureMaterialRows}>
-                      {closureMaterialRows.map((row, index) => (
-                        <View key={row.id} style={styles.closureMaterialRow}>
-                          <TextInput
-                            style={styles.closureMaterialNameInput}
-                            value={row.materialName}
-                            onChangeText={(value) => updateClosureMaterialRow(row.id, { materialName: value })}
-                            placeholder={index === 0 ? 'Matériel' : 'Autre matériel'}
-                            placeholderTextColor={COLORS.textMuted}
-                            editable={!isClosingIncident}
-                          />
-                          <TextInput
-                            style={styles.closureMaterialQuantityInput}
-                            value={row.quantity}
-                            onChangeText={(value) => updateClosureMaterialRow(row.id, { quantity: value })}
-                            placeholder="Qté"
-                            placeholderTextColor={COLORS.textMuted}
-                            keyboardType="decimal-pad"
-                            editable={!isClosingIncident}
-                          />
-                          {closureMaterialRows.length > 1 ? (
-                            <TouchableOpacity
-                              style={styles.closureMaterialRemove}
-                              onPress={() => removeClosureMaterialRow(row.id)}
-                              disabled={isClosingIncident}
-                            >
-                              <Ionicons name="trash-outline" size={18} color="#991B1B" />
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      ))}
-                      <TouchableOpacity
-                        style={styles.closureMaterialAdd}
-                        onPress={addClosureMaterialRow}
-                        disabled={isClosingIncident}
-                      >
-                        <Ionicons name="add" size={18} color={COLORS.textPrimary} />
-                        <Text style={styles.closureMaterialAddText}>Ajouter un matériel</Text>
-                      </TouchableOpacity>
-                    </View>}
-                  </View>
-                ) : null}
-
-                </ScrollView>
-
-                {/* Modal Footer Actions */}
-                {isAdmin && <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={[
-                      styles.actionStatusBtn,
-                      { backgroundColor: selectedIncident.status === 'open' ? COLORS.statGreen : COLORS.statRed }
-                    ]}
-                    onPress={() => handleToggleStatusInModal(selectedIncident)}
-                    disabled={isClosingIncident}
-                  >
-                    <Ionicons
-                      name={selectedIncident.status === 'open' ? "checkmark-circle-outline" : "alert-circle-outline"}
-                      size={20}
-                      color={COLORS.white}
-                    />
-                    <Text style={styles.actionStatusBtnText}>
-                      {selectedIncident.status === 'open' ? 'Clôturer l\'incident' : 'Rouvrir l\'incident'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>}
-              </>
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <IncidentDetailSheet
+        incident={selectedIncident}
+        onClose={() => setSelectedIncident(null)}
+        onUpdated={handleIncidentUpdated}
+        onArchived={handleIncidentArchived}
+      />
     </View>
+  );
+}
+
+function DurationValue({ parts }: { parts: DurationPart[] }) {
+  return (
+    <Text style={styles.resolutionValue} numberOfLines={1} adjustsFontSizeToFit>
+      {parts.map((part, index) => (
+        <Text key={part.unit || index}>
+          {index > 0 ? ' ' : ''}{part.value}
+          {part.unit ? <Text style={styles.resolutionUnit}> {part.unit}</Text> : null}
+        </Text>
+      ))}
+    </Text>
   );
 }
 
@@ -638,7 +293,7 @@ function AdminDashboardSkeleton() {
 
         <View style={styles.statsGrid}>
           {Array.from({ length: 4 }).map((_, index) => (
-            <View key={index} style={styles.statCard}>
+            <View key={index} style={styles.statCardSkeleton}>
               <SrmSkeletonBlock width={34} height={34} radius={8} style={{ marginBottom: 10 }} />
               <SrmSkeletonBlock width="56%" height={12} />
               <SrmSkeletonBlock width="42%" height={28} style={{ marginTop: 8 }} />
@@ -740,6 +395,11 @@ const styles = StyleSheet.create({
 
   statCard: {
     width: '48%',
+    marginBottom: 12,
+  },
+
+  statCardSkeleton: {
+    width: '48%',
     backgroundColor: COLORS.cardBg,
     borderRadius: 16,
     padding: 16,
@@ -759,29 +419,6 @@ const styles = StyleSheet.create({
     }),
   },
 
-  statIconContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-
-  statLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.textSecondary,
-    letterSpacing: 0.3,
-    marginBottom: 4,
-  },
-
-  statValue: {
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-
   // ── Resolution KPIs ──
   resolutionContainer: {
     marginHorizontal: 16,
@@ -791,6 +428,17 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
+  },
+
+  resolutionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  resolutionUnit: {
+    fontSize: 14,
+    fontWeight: '400',
   },
 
   resolutionRow: {
@@ -858,73 +506,6 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBorder,
   },
 
-  incidentCardMain: {
-    flex: 1,
-  },
-
-  typeBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.primaryDark,
-  },
-
-  incidentDate: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-
-  incidentTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.primaryDark,
-    marginTop: 8,
-  },
-
-  incidentDesc: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-
-  incidentCardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-
-  incidentLocation: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '600',
-  },
-
-  reclamationBadge: {
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#FEF3C7',
-  },
-
-  reclamationBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.statOrange,
-  },
-
   showMoreButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -960,267 +541,6 @@ const styles = StyleSheet.create({
   },
 
   // ── Modal Styles ──
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-
-  modalContent: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '85%',
-    minHeight: '60%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-
-  closeModalButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  modalScroll: {
-    flexShrink: 1,
-    padding: 20,
-  },
-
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-
-  statusBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  modalDate: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
-  },
-
-  detailRow: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-
-  detailLabel: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-
-  detailValue: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
-  },
-  materialList: {
-    gap: 8,
-  },
-
-  materialRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-
-  materialName: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: '700',
-    flex: 1,
-  },
-
-  materialQuantity: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: '900',
-  },
-
-  closureMaterialBlock: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
-  },
-
-  closureMaterialTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 6,
-  },
-
-  closureMaterialHelp: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    marginBottom: 12,
-  },
-
-  closureMaterialRows: {
-    gap: 10,
-  },
-
-  closureMaterialRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  closureMaterialNameInput: {
-    flex: 1,
-    minWidth: 0,
-    backgroundColor: COLORS.white,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    padding: 12,
-    color: COLORS.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-
-  closureMaterialQuantityInput: {
-    width: 84,
-    backgroundColor: COLORS.white,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    padding: 12,
-    color: COLORS.textPrimary,
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-
-  closureMaterialRemove: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  closureMaterialAdd: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-  },
-
-  closureMaterialAddText: {
-    color: COLORS.textPrimary,
-    fontWeight: '900',
-  },
-
-  mapLinkText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-
-  detailDescValue: {
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    lineHeight: 20,
-  },
-
-  reclamationDetailsBlock: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#FEF3C7',
-    marginTop: 10,
-  },
-
-  reclamationDetailsTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: COLORS.statOrange,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-
-  reclamationTextItem: {
-    fontSize: 13,
-    color: '#78350F',
-    marginTop: 4,
-  },
-
-  attachmentThumbnail: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-
-  modalFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    padding: 20,
-  },
-
-  actionStatusBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-
-  actionStatusBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.white,
-  },
   darkSkeletonBlock: {
     backgroundColor: 'rgba(255, 255, 255, 0.18)',
   },
@@ -1230,9 +550,3 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
 });
-
-function formatQuantity(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-}

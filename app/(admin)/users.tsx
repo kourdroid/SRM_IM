@@ -1,4 +1,4 @@
-import { SrmActionButton, SrmEmptyState, SrmListSkeleton, SrmScreenHeader, SrmStatusBadge } from '@/components/ui/srm';
+import { SrmActionButton, SrmEmptyState, SrmListSkeleton, SrmScreenHeader, SrmBottomSheet, SrmSheetActions, SrmStatusBadge } from '@/components/ui/srm';
 import {
   UserAdminService,
   type UserApprovalStatus,
@@ -11,9 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -326,23 +324,21 @@ export default function UserManagement() {
         }
       />
 
-      {/* Add User Modal */}
-      <Modal
+      <SrmBottomSheet
         visible={showAddModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowAddModal(false)}
+        title="Créer un Compte Membre"
+        onClose={() => setShowAddModal(false)}
+        closeDisabled={creating}
+        footer={(
+          <SrmSheetActions
+            onCancel={() => setShowAddModal(false)}
+            onConfirm={handleCreateUser}
+            confirmLabel="Créer"
+            confirmIcon="checkmark-done"
+            loading={creating}
+          />
+        )}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Créer un Compte Membre</Text>
-              <TouchableOpacity onPress={() => setShowAddModal(false)} disabled={creating}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalForm} keyboardShouldPersistTaps="handled">
               {/* Full name input */}
               <Text style={styles.inputLabel}>Nom Complet *</Text>
               <TextInput
@@ -397,61 +393,16 @@ export default function UserManagement() {
               </View>
 
               <View style={{ height: 24 }} />
-            </ScrollView>
+      </SrmBottomSheet>
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => setShowAddModal(false)}
-                disabled={creating}
-              >
-                <Text style={styles.cancelBtnText}>Annuler</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={handleCreateUser}
-                disabled={creating}
-              >
-                {creating ? (
-                  <ActivityIndicator color={COLORS.primaryDark} size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark-done" size={18} color={COLORS.primaryDark} />
-                    <Text style={styles.confirmBtnText}>Créer</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
+      <SrmBottomSheet
         visible={rolePickerProfile !== null}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => !roleUpdating && setRolePickerProfile(null)}
+        title="Changer le rôle"
+        subtitle={rolePickerProfile?.name || rolePickerProfile?.email || 'Utilisateur'}
+        onClose={() => setRolePickerProfile(null)}
+        closeDisabled={roleUpdating}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.roleSheet}>
-            <View style={styles.modalHeader}>
-              <View style={styles.roleSheetTitleBlock}>
-                <Text style={styles.modalTitle}>Changer le rôle</Text>
-                <Text style={styles.roleSheetSubtitle} numberOfLines={1}>
-                  {rolePickerProfile?.name || rolePickerProfile?.email || 'Utilisateur'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setRolePickerProfile(null)}
-                disabled={roleUpdating}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={22} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.roleSheetBody}>
+        <View style={styles.roleSheetBody}>
               {rolePickerProfile ? ROLE_OPTIONS.map(option => (
                 <RoleOption
                   key={option.role}
@@ -465,9 +416,7 @@ export default function UserManagement() {
                 />
               )) : null}
             </View>
-          </View>
-        </View>
-      </Modal>
+      </SrmBottomSheet>
     </View>
   );
 }
@@ -553,45 +502,6 @@ const styles = StyleSheet.create({
   },
 
   // ── Header ──
-  header: {
-    backgroundColor: COLORS.primaryDark,
-    paddingTop: Platform.OS === 'ios' ? 60 : 48,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: COLORS.white,
-  },
-
-  headerSubtitle: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    marginTop: 2,
-    fontWeight: '500',
-  },
-
-  addButton: {
-    backgroundColor: COLORS.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 4,
-  },
-
-  addButtonText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.primaryDark,
-  },
-
   // ── List ──
   listContent: {
     paddingHorizontal: 16,
@@ -666,18 +576,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
 
-  roleLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: COLORS.textMuted,
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-
-  roleLabelActive: {
-    color: COLORS.primaryDark,
-  },
-
   changeRoleButton: {
     height: 28,
     borderRadius: 8,
@@ -738,62 +636,7 @@ const styles = StyleSheet.create({
   },
 
   // ── Empty ──
-  emptyContainer: {
-    paddingTop: 60,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  emptyText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.textSecondary,
-    marginTop: 12,
-  },
-
   // ── Add Modal ──
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-
-  modalContent: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '85%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-
-  modalCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  modalForm: {
-    padding: 20,
-  },
-
   inputLabel: {
     fontSize: 12,
     fontWeight: '800',
@@ -874,68 +717,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  roleSheet: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-
-  roleSheetTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  roleSheetSubtitle: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 3,
-  },
-
   roleSheetBody: {
-    padding: 20,
     gap: 10,
   },
 
-  modalFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    padding: 20,
-    gap: 12,
-  },
-
-  cancelBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
-  },
-
-  cancelBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.textSecondary,
-  },
-
-  confirmBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.accent,
-    flexDirection: 'row',
-    gap: 6,
-  },
-
-  confirmBtnText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.primaryDark,
-  },
 });

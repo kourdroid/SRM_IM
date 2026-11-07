@@ -1,7 +1,8 @@
+import { SrmPasswordField } from '@/components/ui/srm';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/src/core/constants/theme';
 import { supabase, toSupabaseUserMessage } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { Link, router } from 'expo-router';
+import { Link, router, useLocalSearchParams, type Href } from 'expo-router';
 import { authStorage } from '@/lib/authStorage';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -21,7 +22,8 @@ const REMEMBER_EMAIL_KEY = 'srm_login_remember_email';
 const SAVED_EMAIL_KEY = 'srm_login_saved_email';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const { email: prefilledEmail, passwordReset } = useLocalSearchParams<{ email?: string; passwordReset?: string }>();
+  const [email, setEmail] = useState(prefilledEmail ?? '');
   const [password, setPassword] = useState('');
   const [rememberEmail, setRememberEmail] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -37,16 +39,26 @@ export default function Login() {
       ]);
       if (!mounted) return;
       if (remember === 'true' && savedEmail) {
-        setEmail(savedEmail);
         setRememberEmail(true);
-        setTimeout(() => passwordInputRef.current?.focus(), 100);
+        if (!prefilledEmail) {
+          setEmail(savedEmail);
+          setTimeout(() => passwordInputRef.current?.focus(), 100);
+        }
       }
     }
     void loadSavedEmail();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [prefilledEmail]);
+
+  // Returning from a reset reuses this screen, so the previous input has to be replaced here.
+  useEffect(() => {
+    if (!passwordReset) return;
+    if (prefilledEmail) setEmail(prefilledEmail);
+    setPassword('');
+    setTimeout(() => passwordInputRef.current?.focus(), 100);
+  }, [passwordReset, prefilledEmail]);
 
   async function signInWithEmail() {
     if (signingIn.current) return;
@@ -118,20 +130,22 @@ export default function Login() {
             />
           </View>
 
-          <View style={styles.inputRow}>
-            <Ionicons name="lock-closed-outline" size={20} color={COLORS.textMuted} />
-            <TextInput
-              ref={passwordInputRef}
-              style={styles.input}
-              placeholder="Mot de passe"
-              placeholderTextColor={COLORS.textMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              returnKeyType="done"
-              onSubmitEditing={signInWithEmail}
-            />
-          </View>
+          <SrmPasswordField
+            inputRef={passwordInputRef}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Mot de passe"
+            autoComplete="current-password"
+            onSubmitEditing={signInWithEmail}
+          />
+
+          <TouchableOpacity
+            style={styles.forgotRow}
+            onPress={() => router.push(`/(auth)/forgot-password?email=${encodeURIComponent(email.trim())}` as Href)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.rememberRow}
@@ -225,6 +239,16 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontSize: 15,
     fontWeight: '400',
+  },
+  forgotRow: {
+    alignSelf: 'flex-end',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  forgotText: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
   },
   rememberRow: {
     flexDirection: 'row',

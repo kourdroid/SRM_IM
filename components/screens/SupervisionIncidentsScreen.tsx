@@ -1,30 +1,19 @@
 import { useAuth } from '@/contexts/AuthContext';
-import MaterialUsageSelector, { type MaterialUsageChoice } from '@/components/MaterialUsageSelector';
-import { SrmListSkeleton } from '@/components/ui/srm';
-import {
-  NO_MATERIAL_USED_LABEL,
-  buildEquipmentSummary,
-  createEmptyMaterialFormRow,
-  normalizeMaterialRows,
-  type MaterialFormRow,
-} from '@/lib/materials';
+import IncidentCard from '@/components/incidents/IncidentCard';
+import IncidentDetailSheet from '@/components/incidents/IncidentDetailSheet';
+import { SrmBottomSheet, SrmListSkeleton } from '@/components/ui/srm';
 import { supabase } from '@/lib/supabase';
 import { IncidentAdminService, type Incident, type IncidentFilters } from '@/src/core/services/incidentAdminService';
 import { acknowledgeAdminNotification } from '@/src/core/services/adminNotificationService';
 import { router, useLocalSearchParams } from 'expo-router';
 import { z } from 'zod';
-import AdminIncidentEditModal, { type IncidentEditPatch } from '@/components/AdminIncidentEditModal';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
-import { Image } from 'expo-image';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Linking,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -50,9 +39,30 @@ const COLORS = {
   white: '#FFFFFF',
 } as const;
 
+type StatusFilter = 'open' | 'closed' | 'all';
+type DatePreset = 'all' | 'today' | '7days' | '30days';
+
+const parseStatusFilter = (value?: string): StatusFilter => value === 'open' || value === 'closed' ? value : 'all';
+const parseDatePreset = (value?: string): DatePreset => value === 'today' || value === '7days' || value === '30days' ? value : 'all';
+const DATE_PRESET_LABELS: Record<DatePreset, string> = { all: 'Toujours', today: "Aujourd'hui", '7days': '7j', '30days': '30j' };
+
 export default function SupervisionIncidentsScreen() {
   const { isAdmin } = useAuth();
-  const { incidentId, notificationId } = useLocalSearchParams<{ incidentId?: string; notificationId?: string }>();
+  const {
+    incidentId,
+    notificationId,
+    status: statusParam,
+    reclamation: reclamationParam,
+    period: periodParam,
+    filterAt,
+  } = useLocalSearchParams<{
+    incidentId?: string;
+    notificationId?: string;
+    status?: string;
+    reclamation?: string;
+    period?: string;
+    filterAt?: string;
+  }>();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -60,11 +70,11 @@ export default function SupervisionIncidentsScreen() {
 
   // Filters State
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<'open' | 'closed' | 'all'>('all');
+  const [status, setStatus] = useState<StatusFilter>(() => parseStatusFilter(statusParam));
   const [type, setType] = useState<'BT' | 'MT' | 'all'>('all');
   const [communeId, setCommuneId] = useState<string>('all');
-  const [reclamation, setReclamation] = useState<boolean | undefined>(undefined);
-  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7days' | '30days'>('all');
+  const [reclamation, setReclamation] = useState<boolean | undefined>(reclamationParam === 'true' ? true : undefined);
+  const [datePreset, setDatePreset] = useState<DatePreset>(() => parseDatePreset(periodParam));
   const [agentId, setAgentId] = useState<string>('all');
   const [hasGps, setHasGps] = useState<boolean | undefined>(undefined);
   const [hasMedia, setHasMedia] = useState<boolean | undefined>(undefined);
@@ -76,25 +86,42 @@ export default function SupervisionIncidentsScreen() {
   const [showCommuneModal, setShowCommuneModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
-  const [isArchivingIncident, setIsArchivingIncident] = useState(false);
-  const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const appliedFilterAt = useRef(filterAt);
+  const latestLoad = useRef(0);
 
-  const handleIncidentEdited = (id: string, patch: IncidentEditPatch) => {
+  const handleIncidentUpdated = (id: string, patch: Partial<Incident>) => {
     setIncidents(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i));
     setSelectedIncident(prev => prev && prev.id === id ? { ...prev, ...patch } : prev);
-    Alert.alert('Succès', 'Incident modifié.');
   };
-  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
-  const [showClosureMaterials, setShowClosureMaterials] = useState(false);
-  const [materialUsage, setMaterialUsage] = useState<MaterialUsageChoice>(null);
-  const [closureMaterialRows, setClosureMaterialRows] = useState<MaterialFormRow[]>([createEmptyMaterialFormRow()]);
-  const [isClosingIncident, setIsClosingIncident] = useState(false);
+
+  const handleIncidentArchived = (id: string) => {
+    setIncidents(prev => prev.filter(i => i.id !== id));
+    setSelectedIncident(null);
+  };
 
   useEffect(() => {
     loadInitial();
     // Search is handled by the debounced effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, type, communeId, reclamation, datePreset, agentId, hasGps, hasMedia]);
+  }, [status, type, communeId, reclamation, datePreset, agentId, hasGps, hasMedia, reloadKey]);
+
+  // A dashboard KPI opens this screen on exactly what it counted, whatever was filtered before.
+  useEffect(() => {
+    if (!filterAt || filterAt === appliedFilterAt.current) return;
+    appliedFilterAt.current = filterAt;
+    setStatus(parseStatusFilter(statusParam));
+    setReclamation(reclamationParam === 'true' ? true : undefined);
+    setDatePreset(parseDatePreset(periodParam));
+    setType('all');
+    setCommuneId('all');
+    setAgentId('all');
+    setHasGps(undefined);
+    setHasMedia(undefined);
+    setSearch('');
+    setIncidents([]);
+    setReloadKey(key => key + 1);
+  }, [filterAt, statusParam, reclamationParam, periodParam]);
 
   useEffect(() => {
     fetchCommunes();
@@ -157,15 +184,16 @@ export default function SupervisionIncidentsScreen() {
   };
 
   const loadInitial = async () => {
+    const load = ++latestLoad.current;
     setLoading(true);
     try {
       const activeFilters = buildFilters();
       const data = await IncidentAdminService.getIncidents(15, undefined, activeFilters);
-      setIncidents(data);
+      if (load === latestLoad.current) setIncidents(data);
     } catch (e) {
-      Alert.alert('Erreur', String(e));
+      if (load === latestLoad.current) Alert.alert('Erreur', String(e));
     } finally {
-      setLoading(false);
+      if (load === latestLoad.current) setLoading(false);
     }
   };
 
@@ -199,130 +227,6 @@ export default function SupervisionIncidentsScreen() {
     }
   };
 
-  const handleToggleStatus = async (item: Incident) => {
-    if (!isAdmin || isClosingIncident) return;
-    const newStatus = item.status === 'open' ? 'closed' : 'open';
-    const existingMaterials = item.materials || [];
-    const noMaterialUsed = item.status === 'open' && existingMaterials.length === 0 && materialUsage === 'none';
-    const normalizedMaterials = noMaterialUsed ? [] : normalizeMaterialRows(closureMaterialRows);
-    if (item.status === 'open' && existingMaterials.length === 0 && !showClosureMaterials) {
-      setShowClosureMaterials(true);
-      return;
-    }
-    if (item.status === 'open' && existingMaterials.length === 0 && materialUsage === null) {
-      Alert.alert('Matériel utilisé', 'Choisissez avec matériel ou aucun matériel utilisé.');
-      return;
-    }
-    if (item.status === 'open' && normalizedMaterials === null) {
-      Alert.alert('Matériel invalide', 'Chaque ligne de matériel doit avoir un nom et une quantité positive.');
-      return;
-    }
-    if (item.status === 'open' && existingMaterials.length === 0 && !noMaterialUsed && (normalizedMaterials?.length ?? 0) === 0) {
-      Alert.alert('Matériel requis', "Ajoutez au moins un matériel utilisé pour clôturer l'incident.");
-      return;
-    }
-    const closureMaterials = normalizedMaterials ?? [];
-
-    try {
-      setIsClosingIncident(true);
-      const nextMaterials = item.status === 'open' && closureMaterials.length > 0
-        ? closureMaterials.map(material => ({
-          material_name: material.material_name,
-          quantity: material.quantity,
-        }))
-        : existingMaterials;
-      let nextEquipmentUsed = item.equipment_used;
-      if (noMaterialUsed) nextEquipmentUsed = NO_MATERIAL_USED_LABEL;
-      else if (closureMaterials.length > 0) nextEquipmentUsed = buildEquipmentSummary(closureMaterials);
-      else if (item.status === 'closed' && item.no_material_used) nextEquipmentUsed = '';
-
-      if (item.status === 'open' && (closureMaterials.length > 0 || noMaterialUsed)) {
-        await IncidentAdminService.closeIncidentWithMaterials({
-          id: item.id,
-          materials: closureMaterials,
-          no_material_used: noMaterialUsed,
-        });
-      } else {
-        await IncidentAdminService.updateIncidentStatus({ id: item.id, status: newStatus });
-      }
-
-      setIncidents(prev => prev.map(i => i.id === item.id ? {
-        ...i,
-        status: newStatus,
-        no_material_used: noMaterialUsed,
-        materials: nextMaterials,
-        equipment_used: nextEquipmentUsed,
-        materials_summary: nextEquipmentUsed,
-      } : i));
-      if (selectedIncident?.id === item.id) {
-        setSelectedIncident(prev => prev ? {
-          ...prev,
-          status: newStatus,
-          no_material_used: noMaterialUsed,
-          materials: nextMaterials,
-          equipment_used: nextEquipmentUsed,
-          materials_summary: nextEquipmentUsed,
-        } : null);
-      }
-      setShowClosureMaterials(false);
-      setMaterialUsage(null);
-      setClosureMaterialRows([createEmptyMaterialFormRow()]);
-      Alert.alert('Succès', `Incident ${newStatus === 'closed' ? 'clôturé' : 'rouvert'}.`);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (message.includes('NETWORK_OFFLINE')) {
-        Alert.alert('Action Hors Ligne Bloquée', 'Les mutations administrateur requièrent une connexion internet active.');
-      } else {
-        Alert.alert('Erreur', message);
-      }
-    } finally {
-      setIsClosingIncident(false);
-    }
-  };
-
-  const handleArchiveIncident = (item: Incident) => {
-    if (!isAdmin) return;
-    Alert.alert(
-      "Supprimer l'incident",
-      "L'incident sera retiré des listes, des statistiques et des rapports. Son historique reste conservé.",
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsArchivingIncident(true);
-              await IncidentAdminService.archiveIncident(item.id);
-              setIncidents(prev => prev.filter(i => i.id !== item.id));
-              setSelectedIncident(null);
-            } catch (e: unknown) {
-              const message = e instanceof Error ? e.message : String(e);
-              if (message.includes('NETWORK_OFFLINE')) {
-                Alert.alert('Action Hors Ligne Bloquée', 'Les mutations administrateur requièrent une connexion internet active.');
-              } else {
-                Alert.alert('Erreur', message);
-              }
-            } finally {
-              setIsArchivingIncident(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  const openIncidentMap = (incident: Incident) => {
-    if (incident.latitude == null || incident.longitude == null) return;
-    const query = `${incident.latitude},${incident.longitude}`;
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
-  };
-
-  const formatIncidentAge = (incident: Incident) => {
-    const end = incident.closed_at || new Date().toISOString();
-    return formatDurationBetween(incident.created_at, end);
-  };
-
   const getCommuneName = (id: string) => {
     if (id === 'all') return 'Toutes les Communes';
     const comm = communes.find(c => c.id === id);
@@ -349,9 +253,6 @@ export default function SupervisionIncidentsScreen() {
 
   const openIncidentDetails = useCallback((incident: Incident) => {
     setSelectedIncident(incident);
-    setShowClosureMaterials(false);
-    setMaterialUsage(null);
-    setClosureMaterialRows([createEmptyMaterialFormRow()]);
   }, []);
 
   useEffect(() => {
@@ -376,73 +277,10 @@ export default function SupervisionIncidentsScreen() {
     return () => { active = false; };
   }, [incidentId, notificationId, openIncidentDetails]);
 
-  const addClosureMaterialRow = () => {
-    setClosureMaterialRows(rows => [...rows, createEmptyMaterialFormRow()]);
-  };
-
-  const removeClosureMaterialRow = (id: string) => {
-    setClosureMaterialRows(rows => rows.length > 1 ? rows.filter(row => row.id !== id) : rows);
-  };
-
-  const updateClosureMaterialRow = (id: string, patch: Partial<MaterialFormRow>) => {
-    setClosureMaterialRows(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
-  };
-
   // Prevent unnecessary re-renders in FlashList/FlatList by memoizing the renderItem callback
-  const renderItem = useCallback(({ item }: { item: Incident }) => {
-    const isOpen = item.status === 'open';
-
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => openIncidentDetails(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.cardContent}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeBadgeText}>{item.type}</Text>
-            </View>
-            <Text style={styles.date}>
-              {new Date(item.created_at).toLocaleDateString()}
-            </Text>
-          </View>
-          <Text style={styles.incidentTypeTitle} numberOfLines={1}>
-            {item.title || item.incident_type}
-          </Text>
-          <Text style={styles.description} numberOfLines={2}>
-            {item.description || 'Aucune description fournie.'}
-          </Text>
-          
-          <View style={styles.locationContainer}>
-            <Ionicons name="navigate-outline" size={13} color={COLORS.textSecondary} />
-            <Text style={styles.locationText}>
-              {item.commune_name} • {item.village}
-            </Text>
-          </View>
-
-          <View style={styles.cardFooter}>
-            <Text style={styles.createdBy}>
-              Par: {item.created_by_name || 'Agent Terrain'}
-            </Text>
-            {item.reclamation && (
-              <View style={styles.reclamationBadge}>
-                <Text style={styles.reclamationBadgeText}>RÉC</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        <View
-          style={[styles.statusBadge, isOpen ? styles.statusOpen : styles.statusClosed]}
-        >
-          <Text style={[styles.statusText, isOpen ? styles.statusTextOpen : styles.statusTextClosed]}>
-            {isOpen ? 'EN COURS' : 'CLÔTURÉ'}
-          </Text>
-        </View>
-      </TouchableOpacity>
-    );
-  }, [openIncidentDetails]);
+  const renderItem = useCallback(({ item }: { item: Incident }) => (
+    <IncidentCard incident={item} onPress={openIncidentDetails} style={styles.card} />
+  ), [openIncidentDetails]);
 
   // Prevent unnecessary re-renders in FlashList/FlatList by memoizing the renderItem callback
   const renderAgentItem = useCallback(({ item }: { item: { id: string; name: string | null } }) => (
@@ -491,6 +329,28 @@ export default function SupervisionIncidentsScreen() {
       )}
     </TouchableOpacity>
   ), [communeId]);
+
+  const activeFilters = [
+    status === 'open' ? 'En cours' : status === 'closed' ? 'Clôturés' : null,
+    type !== 'all' ? type : null,
+    datePreset !== 'all' ? DATE_PRESET_LABELS[datePreset] : null,
+    reclamation === true ? 'Réclamations' : reclamation === false ? 'Rapports standards' : null,
+    communeId !== 'all' ? getCommuneName(communeId) : null,
+    agentId !== 'all' ? getAgentName(agentId) : null,
+    hasGps === false ? 'GPS manquant' : null,
+    hasMedia === false ? 'Photo manquante' : null,
+  ].filter((label): label is string => label !== null);
+
+  const clearFilters = () => {
+    setStatus('all');
+    setType('all');
+    setDatePreset('all');
+    setReclamation(undefined);
+    setCommuneId('all');
+    setAgentId('all');
+    setHasGps(undefined);
+    setHasMedia(undefined);
+  };
 
   return (
     <View style={styles.container}>
@@ -651,6 +511,16 @@ export default function SupervisionIncidentsScreen() {
         </ScrollView>
       )}
 
+      {!showFilters && activeFilters.length > 0 ? (
+        <View style={styles.activeFilters}>
+          <Ionicons name="funnel" size={14} color={COLORS.textSecondary} />
+          <Text style={styles.activeFiltersText} numberOfLines={1}>{activeFilters.join(' · ')}</Text>
+          <TouchableOpacity onPress={clearFilters} style={styles.activeFiltersClear} accessibilityRole="button">
+            <Text style={styles.activeFiltersClearText}>Effacer</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       {/* ─── Incidents List ─────────────────────────────────────── */}
       {loading && incidents.length === 0 ? (
         <SrmListSkeleton count={7} style={styles.skeletonList} />
@@ -675,362 +545,44 @@ export default function SupervisionIncidentsScreen() {
       )}
 
       {/* ─── Commune Selection Modal ────────────────────────────── */}
-      <Modal
+      <SrmBottomSheet
         visible={showCommuneModal}
-        transparent={true}
+        title="Sélectionner la Commune"
+        onClose={() => setShowCommuneModal(false)}
         animationType="fade"
-        onRequestClose={() => setShowCommuneModal(false)}
+        scrollable={false}
+        minHeight="40%"
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.communeModalContainer}>
-            <View style={styles.communeModalHeader}>
-              <Text style={styles.communeModalTitle}>Sélectionner la Commune</Text>
-              <TouchableOpacity onPress={() => setShowCommuneModal(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={[{ id: 'all', name: 'Toutes les Communes' }, ...communes]}
-              keyExtractor={(item) => item.id}
-              renderItem={renderCommuneItem}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-            />
-          </View>
-        </View>
-      </Modal>
+        <FlatList
+          data={[{ id: 'all', name: 'Toutes les Communes' }, ...communes]}
+          keyExtractor={(item) => item.id}
+          renderItem={renderCommuneItem}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
+      </SrmBottomSheet>
 
-      <Modal
+      <SrmBottomSheet
         visible={showAgentModal}
-        transparent={true}
+        title="Sélectionner l'Agent"
+        onClose={() => setShowAgentModal(false)}
         animationType="fade"
-        onRequestClose={() => setShowAgentModal(false)}
+        scrollable={false}
+        minHeight="40%"
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.communeModalContainer}>
-            <View style={styles.communeModalHeader}>
-              <Text style={styles.communeModalTitle}>Sélectionner l&apos;Agent</Text>
-              <TouchableOpacity onPress={() => setShowAgentModal(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={[{ id: 'all', name: 'Tous les Agents' }, ...agents]}
-              keyExtractor={(item) => item.id}
-              renderItem={renderAgentItem}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-            />
-          </View>
-        </View>
-      </Modal>
+        <FlatList
+          data={[{ id: 'all', name: 'Tous les Agents' }, ...agents]}
+          keyExtractor={(item) => item.id}
+          renderItem={renderAgentItem}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
+      </SrmBottomSheet>
 
-      {/* ─── Incident Detail Modal ─────────────────────────────── */}
-      <Modal
-        visible={selectedIncident !== null}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setSelectedIncident(null)}
-      >
-        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.detailModalContainer}>
-            {selectedIncident && (
-              <>
-                {/* Modal Header */}
-                <View style={styles.modalHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{selectedIncident.type}</Text>
-                    </View>
-                    <Text style={styles.detailModalTitle} numberOfLines={1}>
-                      {selectedIncident.title || 'Fiche Incident'}
-                    </Text>
-                  </View>
-                  <View style={styles.headerActions}>
-                    {isAdmin ? (
-                      <TouchableOpacity
-                        onPress={() => setEditingIncident(selectedIncident)}
-                        style={styles.editIconButton}
-                        disabled={isClosingIncident || isArchivingIncident}
-                        accessibilityRole="button"
-                        accessibilityLabel="Modifier l'incident"
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons name="create-outline" size={19} color={COLORS.textPrimary} />
-                      </TouchableOpacity>
-                    ) : null}
-                  <TouchableOpacity
-                    onPress={() => setSelectedIncident(null)}
-                    style={styles.closeModalButton}
-                  >
-                    <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-                  </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Modal Scroll Content */}
-                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
-                  {/* Status Badge */}
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <View style={[
-                      styles.modalStatusBadge,
-                      { backgroundColor: selectedIncident.status === 'open' ? '#FEF2F2' : '#F0FDF4' }
-                    ]}>
-                      <Text style={[
-                        styles.modalStatusBadgeText,
-                        { color: selectedIncident.status === 'open' ? COLORS.statRed : COLORS.statGreen }
-                      ]}>
-                        {selectedIncident.status === 'open' ? 'EN COURS' : 'CLÔTURÉ'}
-                      </Text>
-                    </View>
-                    <Text style={styles.modalDateText}>
-                      Rapporté le {new Date(selectedIncident.created_at).toLocaleString()}
-                    </Text>
-                  </View>
-
-                  {/* Incident Type Details */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>{"Type d'incident"}</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.incident_type}</Text>
-                  </View>
-
-                  {selectedIncident.type === 'MT' && selectedIncident.depart_hta ? (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Départ HTA</Text>
-                      <Text style={styles.detailValue}>{selectedIncident.depart_hta}</Text>
-                    </View>
-                  ) : null}
-
-                  {/* Commune & Village */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Commune</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.commune_name}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Village / Quartier</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.village}</Text>
-                  </View>
-
-                  {selectedIncident.latitude != null && selectedIncident.longitude != null && (
-                    <TouchableOpacity
-                      style={styles.detailRow}
-                      onPress={() => openIncidentMap(selectedIncident)}
-                    >
-                      <Text style={styles.detailLabel}>Position GPS</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedIncident.latitude.toFixed(6)}, {selectedIncident.longitude.toFixed(6)}
-                      </Text>
-                      <Text style={styles.mapLinkText}>Ouvrir dans Google Maps</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Creator */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Rapporté par</Text>
-                    <Text style={styles.detailValue}>{selectedIncident.created_by_name || 'Agent de terrain'}</Text>
-                  </View>
-
-                  {selectedIncident.status === 'closed' && (
-                    <>
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Clôturé par</Text>
-                        <Text style={styles.detailValue}>
-                          {selectedIncident.closed_by_name || 'Utilisateur inconnu'}
-                        </Text>
-                        {selectedIncident.closed_at && (
-                          <Text style={styles.mapLinkText}>
-                            {new Date(selectedIncident.closed_at).toLocaleString()}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Durée de traitement</Text>
-                        <Text style={styles.detailValue}>{formatIncidentAge(selectedIncident)}</Text>
-                      </View>
-                    </>
-                  )}
-
-                  {selectedIncident.status === 'open' && (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Ouvert depuis</Text>
-                      <Text style={styles.detailValue}>{formatIncidentAge(selectedIncident)}</Text>
-                    </View>
-                  )}
-
-                  {/* Equipment */}
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Matériel utilisé</Text>
-                    {selectedIncident.materials && selectedIncident.materials.length > 0 ? (
-                      <View style={styles.materialList}>
-                        {selectedIncident.materials.map((material) => (
-                          <View key={`${material.material_name}-${material.quantity}`} style={styles.materialRow}>
-                            <Text style={styles.materialName}>{material.material_name}</Text>
-                            <Text style={styles.materialQuantity}>x{formatQuantity(material.quantity)}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text style={styles.detailValue}>{selectedIncident.equipment_used || 'Non renseigné'}</Text>
-                    )}
-                  </View>
-
-                  {/* Description */}
-                  <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.detailLabel}>Description</Text>
-                    <Text style={styles.detailDescValue}>{selectedIncident.description || 'Aucune description fournie.'}</Text>
-                  </View>
-
-                  {/* Reclamation Details */}
-                  {selectedIncident.reclamation && (
-                    <View style={styles.reclamationDetailsBlock}>
-                      <Text style={styles.reclamationDetailsTitle}>Informations Réclamation</Text>
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={styles.reclamationTextItem}>
-                          <Text style={{ fontWeight: 'bold' }}>Nom du réclamant: </Text>
-                          {selectedIncident.reclamation_name || 'Non spécifié'}
-                        </Text>
-                        <Text style={styles.reclamationTextItem}>
-                          <Text style={{ fontWeight: 'bold' }}>Déposée par: </Text>
-                          {selectedIncident.reclamation_by || 'Non spécifié'}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Media attachments */}
-                  {selectedIncident.media_urls && selectedIncident.media_urls.length > 0 && (
-                    <View style={{ marginTop: 16, marginBottom: 24 }}>
-                      <Text style={styles.detailLabel}>Photos Jointes ({selectedIncident.media_urls.length})</Text>
-                      <ScrollView horizontal={true} showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
-                        {selectedIncident.media_urls.map((url, i) => (
-                          <TouchableOpacity key={url || i} onPress={() => setSelectedPhotoUrl(url)}>
-                          <Image
-                            source={{ uri: url }}
-                            style={styles.attachmentThumbnail}
-                            contentFit="cover"
-                          />
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                {isAdmin && selectedIncident.status === 'open' && showClosureMaterials && (!selectedIncident.materials || selectedIncident.materials.length === 0) ? (
-                  <View style={styles.closureMaterialBlock}>
-                    <Text style={styles.closureMaterialTitle}>MATÉRIEL UTILISÉ</Text>
-                    <Text style={styles.closureMaterialHelp}>
-                      Déclarez le matériel utilisé ou confirmez qu’aucun matériel n’a été utilisé.
-                    </Text>
-                    <MaterialUsageSelector value={materialUsage} onChange={setMaterialUsage} disabled={isClosingIncident} />
-                    {materialUsage === 'used' && <View style={styles.closureMaterialRows}>
-                      {closureMaterialRows.map((row, index) => (
-                        <View key={row.id} style={styles.closureMaterialRow}>
-                          <TextInput
-                            style={styles.closureMaterialNameInput}
-                            value={row.materialName}
-                            onChangeText={(value) => updateClosureMaterialRow(row.id, { materialName: value })}
-                            placeholder={index === 0 ? 'Matériel' : 'Autre matériel'}
-                            placeholderTextColor={COLORS.textMuted}
-                            editable={!isClosingIncident}
-                          />
-                          <TextInput
-                            style={styles.closureMaterialQuantityInput}
-                            value={row.quantity}
-                            onChangeText={(value) => updateClosureMaterialRow(row.id, { quantity: value })}
-                            placeholder="Qté"
-                            placeholderTextColor={COLORS.textMuted}
-                            keyboardType="decimal-pad"
-                            editable={!isClosingIncident}
-                          />
-                          {closureMaterialRows.length > 1 ? (
-                            <TouchableOpacity
-                              style={styles.closureMaterialRemove}
-                              onPress={() => removeClosureMaterialRow(row.id)}
-                              disabled={isClosingIncident}
-                            >
-                              <Ionicons name="trash-outline" size={18} color="#991B1B" />
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      ))}
-                      <TouchableOpacity
-                        style={styles.closureMaterialAdd}
-                        onPress={addClosureMaterialRow}
-                        disabled={isClosingIncident}
-                      >
-                        <Ionicons name="add" size={18} color={COLORS.textPrimary} />
-                        <Text style={styles.closureMaterialAddText}>Ajouter un matériel</Text>
-                      </TouchableOpacity>
-                    </View>}
-                  </View>
-                ) : null}
-
-                </ScrollView>
-
-                {/* Modal Footer Actions */}
-                {isAdmin && <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={[
-                      styles.actionStatusBtn,
-                      { backgroundColor: selectedIncident.status === 'open' ? COLORS.statGreen : COLORS.statRed }
-                    ]}
-                    onPress={() => handleToggleStatus(selectedIncident)}
-                    disabled={isClosingIncident || isArchivingIncident}
-                  >
-                    <Ionicons
-                      name={selectedIncident.status === 'open' ? "checkmark-circle-outline" : "alert-circle-outline"}
-                      size={20}
-                      color={COLORS.white}
-                    />
-                    <Text style={styles.actionStatusBtnText}>
-                      {selectedIncident.status === 'open' ? 'Clôturer l\'incident' : 'Rouvrir l\'incident'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.archiveBtn}
-                    onPress={() => handleArchiveIncident(selectedIncident)}
-                    disabled={isClosingIncident || isArchivingIncident}
-                    accessibilityRole="button"
-                    accessibilityLabel="Supprimer l'incident"
-                  >
-                    {isArchivingIncident
-                      ? <ActivityIndicator size="small" color={COLORS.statRed} />
-                      : <Ionicons name="trash-outline" size={18} color={COLORS.statRed} />}
-                    <Text style={styles.archiveBtnText}>Supprimer l&apos;incident</Text>
-                  </TouchableOpacity>
-                </View>}
-              </>
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <AdminIncidentEditModal
-        incident={editingIncident}
-        onClose={() => setEditingIncident(null)}
-        onSaved={handleIncidentEdited}
+      <IncidentDetailSheet
+        incident={selectedIncident}
+        onClose={() => setSelectedIncident(null)}
+        onUpdated={handleIncidentUpdated}
+        onArchived={handleIncidentArchived}
       />
-
-      <Modal
-        visible={selectedPhotoUrl !== null}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setSelectedPhotoUrl(null)}
-      >
-        <View style={styles.photoViewerOverlay}>
-          <TouchableOpacity
-            style={styles.photoViewerClose}
-            onPress={() => setSelectedPhotoUrl(null)}
-          >
-            <Ionicons name="close" size={26} color={COLORS.white} />
-          </TouchableOpacity>
-          {selectedPhotoUrl && (
-            <Image
-              source={{ uri: selectedPhotoUrl }}
-              style={styles.photoViewerImage}
-              contentFit="contain"
-            />
-          )}
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -1183,138 +735,9 @@ const styles = StyleSheet.create({
 
   // ── Incidents List ──
   card: {
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 16,
-    padding: 16,
     marginHorizontal: 16,
     marginTop: 10,
     marginBottom: 2,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  },
-
-  cardContent: {
-    flex: 1,
-    paddingRight: 12,
-  },
-
-  typeBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.primaryDark,
-  },
-
-  date: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-
-  incidentTypeTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-    marginTop: 6,
-  },
-
-  description: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-    lineHeight: 18,
-  },
-
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
-  },
-
-  locationText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '600',
-  },
-
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-
-  createdBy: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '600',
-  },
-
-  reclamationBadge: {
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#FEF3C7',
-  },
-
-  reclamationBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: COLORS.statOrange,
-  },
-
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    width: 90,
-    alignItems: 'center',
-  },
-
-  statusOpen: {
-    backgroundColor: '#FEF2F2',
-  },
-
-  statusClosed: {
-    backgroundColor: '#F0FDF4',
-  },
-
-  statusText: {
-    fontWeight: '800',
-    fontSize: 11,
-  },
-
-  statusTextOpen: {
-    color: COLORS.statRed,
-  },
-
-  statusTextClosed: {
-    color: COLORS.statGreen,
   },
 
   footerLoader: {
@@ -1333,31 +756,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginTop: 12,
-  },
-
-  // ── Commune Modal ──
-  communeModalContainer: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '60%',
-    minHeight: '40%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-
-  communeModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-
-  communeModalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
   },
 
   communeRow: {
@@ -1387,347 +785,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
 
-  // ── Detail Modal ──
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-
-  detailModalContainer: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '85%',
-    minHeight: '60%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-
-  modalHeader: {
+  activeFilters: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-
-  detailModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-
-  closeModalButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  modalScroll: {
-    flexShrink: 1,
-    padding: 20,
-  },
-
-  modalStatusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-
-  modalStatusBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  modalDateText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
-  },
-
-  detailRow: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-
-  detailLabel: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-
-  detailValue: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
-  },
-  materialList: {
     gap: 8,
-  },
-
-  materialRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-
-  materialName: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: '700',
-    flex: 1,
-  },
-
-  materialQuantity: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: '900',
-  },
-
-  closureMaterialBlock: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 14,
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingLeft: 12,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     backgroundColor: COLORS.cardBg,
   },
 
-  closureMaterialTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 6,
-  },
-
-  closureMaterialHelp: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    marginBottom: 12,
-  },
-
-  closureMaterialRows: {
-    gap: 10,
-  },
-
-  closureMaterialRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  closureMaterialNameInput: {
+  activeFiltersText: {
     flex: 1,
-    minWidth: 0,
-    backgroundColor: COLORS.white,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    padding: 12,
+    fontSize: 12,
+    fontWeight: '700',
     color: COLORS.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
   },
 
-  closureMaterialQuantityInput: {
-    width: 84,
-    backgroundColor: COLORS.white,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    padding: 12,
-    color: COLORS.textPrimary,
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-
-  closureMaterialRemove: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  closureMaterialAdd: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
+  activeFiltersClear: {
+    minHeight: 44,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
+    justifyContent: 'center',
   },
 
-  closureMaterialAddText: {
-    color: COLORS.textPrimary,
-    fontWeight: '900',
-  },
-
-  mapLinkText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-
-  detailDescValue: {
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    lineHeight: 20,
-  },
-
-  reclamationDetailsBlock: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#FEF3C7',
-    marginTop: 10,
-  },
-
-  reclamationDetailsTitle: {
+  activeFiltersClearText: {
     fontSize: 12,
     fontWeight: '800',
-    color: COLORS.statOrange,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-
-  reclamationTextItem: {
-    fontSize: 13,
-    color: '#78350F',
-    marginTop: 4,
-  },
-
-  attachmentThumbnail: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-
-  photoViewerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(17, 24, 39, 0.96)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  photoViewerClose: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 56 : 32,
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
-
-  photoViewerImage: {
-    width: '100%',
-    height: '82%',
-  },
-
-  modalFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    padding: 20,
-  },
-
-  actionStatusBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-
-  actionStatusBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.white,
-  },
-
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-
-  editIconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  archiveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    gap: 8,
-  },
-
-  archiveBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.statRed,
+    color: COLORS.textSecondary,
   },
 });
-
-function formatDurationBetween(startValue: string, endValue: string): string {
-  const start = new Date(startValue).getTime();
-  const end = new Date(endValue).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    return 'Durée inconnue';
-  }
-
-  const totalMinutes = Math.max(0, Math.round((end - start) / 60000));
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-
-  if (days > 0) return `${days} j ${hours} h`;
-  if (hours > 0) return `${hours} h ${minutes} min`;
-  return `${minutes} min`;
-}
-
-function formatQuantity(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-}

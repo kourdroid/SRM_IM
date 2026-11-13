@@ -1,0 +1,45 @@
+/* Soft styling for the MapLibre chrome: no outlines, tinted surfaces, theme-aware icons. */
+.incident-map .maplibregl-ctrl-top-right {
+  top: 0.75rem;
+  right: 0.75rem;
+}
+
+.incident-map .maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 0;
+  border-radius: 0.75rem;
+  background-color: color-mix(in oklab, var(--card) 92%, transparent);
+  box-shadow: var(--soft-shadow-lg);
+  backdrop-filter: blur(8px);
+}
+
+.incident-map .maplibregl-ctrl-group button {
+  background-color: transparent;
+}
+
+.incident-map .maplibregl-ctrl-group button + button {
+  border-top: 0;
+}
+
+.incident-map .maplibregl-ctrl-group button:hover {
+  background-color: var(--muted);
+}
+
+.incident-map .maplibregl-ctrl-group button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.dark .incident-map .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+.incident-map .maplibregl-ctrl-attrib {
+  border-top-left-radius: 0.5rem;
+  background-color: color-mix(in oklab, var(--card) 85%, transparent);
+  color: var(--muted-foreground);
+}
+
+.incident-map .maplibregl-ctrl-attrib a {
+  color: var(--foreground);
+}

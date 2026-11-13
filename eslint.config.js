@@ -12,6 +12,7 @@ module.exports = defineConfig([
       '.agent/**',
       '.agents/**',
       'supabase/functions/**',
+      'apps/**',
     ],
   },
 ]);

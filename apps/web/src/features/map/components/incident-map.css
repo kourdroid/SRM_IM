@@ -43,3 +43,29 @@
 .incident-map .maplibregl-ctrl-attrib a {
   color: var(--foreground);
 }
+
+/* Network hover card: soft surface, no outline, tip tinted like the card so it reads as one shape. */
+.network-popup {
+  pointer-events: none;
+}
+
+.network-popup .maplibregl-popup-content {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  background-color: var(--card);
+  color: var(--card-foreground);
+  box-shadow: var(--soft-shadow-lg);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.network-popup .maplibregl-popup-tip {
+  border-top-color: var(--card);
+  border-right-color: var(--card);
+  border-bottom-color: var(--card);
+  border-left-color: var(--card);
+}
+
+.network-popup-kind {
+  color: var(--muted-foreground);
+}

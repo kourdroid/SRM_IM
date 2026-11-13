@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useDashboardFilters } from "@/data/filters"
 import { useCommunes, useIncidents, type Incident } from "@/data/incidents"
+import { buildPosteIndex, toNetworkLines, toPostePoints, useNetwork, type NetworkDepart } from "@/data/network"
 import { IncidentMap, type IncidentMapHandle } from "@/features/map/components/IncidentMap"
 import { DayStrip } from "@/features/map/components/DayStrip"
 import { IncidentDetailPanel } from "@/features/map/components/IncidentDetailPanel"
-import { MapFilterPanel, MapModeToggle } from "@/features/map/components/MapControls"
+import { MapFilterPanel, MapModeToggle, MapNetworkPanel } from "@/features/map/components/MapControls"
 import {
   buildDayBuckets,
   dayKeysForPeriod,
@@ -22,7 +23,26 @@ import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const NO_INCIDENTS: Incident[] = []
+const NO_DEPARTS: NetworkDepart[] = []
 const RECENT_LIMIT = 20
+const NETWORK_STORAGE_KEY = "intervx.map.network"
+
+/** Remembers whether the network layer was left on; storage can be blocked, so failures fall back to off. */
+function readNetworkPreference(): boolean {
+  try {
+    return window.localStorage.getItem(NETWORK_STORAGE_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function saveNetworkPreference(visible: boolean) {
+  try {
+    window.localStorage.setItem(NETWORK_STORAGE_KEY, visible ? "1" : "0")
+  } catch {
+    // Storage unavailable: the choice simply lasts for this visit.
+  }
+}
 
 function plural(count: number, singular: string, pluralForm: string): string {
   return `${formatNumber(count)} ${count > 1 ? pluralForm : singular}`
@@ -48,6 +68,33 @@ export function MapPage() {
   const [dayKey, setDayKey] = useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const mapRef = useRef<IncidentMapHandle>(null)
+
+  const [networkVisible, setNetworkVisible] = useState(readNetworkPreference)
+  const [highlightedDepartId, setHighlightedDepartId] = useState<string | null>(null)
+  const networkQuery = useNetwork(networkVisible)
+  const networkData = networkQuery.data
+  const posteIndex = useMemo(() => buildPosteIndex(networkData), [networkData])
+  const posteNames = useMemo(() => [...posteIndex.keys()], [posteIndex])
+  const networkLines = useMemo(
+    () => (networkData ? toNetworkLines(networkData.departs, posteIndex) : null),
+    [networkData, posteIndex],
+  )
+  const networkPostes = useMemo(
+    () => (networkData ? toPostePoints(networkData.postes, posteIndex) : null),
+    [networkData, posteIndex],
+  )
+  const networkDeparts = networkData?.departs ?? NO_DEPARTS
+  const networkError = networkQuery.isError
+    ? networkQuery.error instanceof Error
+      ? networkQuery.error.message
+      : "Chargement impossible."
+    : null
+
+  const handleNetworkVisibleChange = useCallback((visible: boolean) => {
+    setNetworkVisible(visible)
+    saveNetworkPreference(visible)
+    if (!visible) setHighlightedDepartId(null)
+  }, [])
 
   const incidents = incidentsQuery.data ?? NO_INCIDENTS
   const positioned = useMemo(() => incidents.filter(hasPosition), [incidents])
@@ -132,6 +179,10 @@ export function MapPage() {
             onSelect={handleMapSelect}
             mode={mode}
             theme={resolvedTheme}
+            networkLines={networkLines}
+            networkPostes={networkPostes}
+            networkVisible={networkVisible}
+            highlightedDepartId={highlightedDepartId}
           />
 
           <div className="absolute top-3 left-3 z-10 flex max-w-[calc(100%_-_4.5rem)] flex-col items-start gap-2">
@@ -141,6 +192,17 @@ export function MapPage() {
               setFilter={setFilter}
               communes={communesQuery.data ?? []}
               communesLoading={communesQuery.isPending}
+            />
+            <MapNetworkPanel
+              visible={networkVisible}
+              onVisibleChange={handleNetworkVisibleChange}
+              departs={networkDeparts}
+              departsLoading={networkVisible && networkQuery.isPending}
+              departsError={networkError}
+              posteNames={posteNames}
+              highlightedDepartId={highlightedDepartId}
+              onHighlightChange={setHighlightedDepartId}
+              defaultExpanded={!isPhone}
             />
           </div>
 

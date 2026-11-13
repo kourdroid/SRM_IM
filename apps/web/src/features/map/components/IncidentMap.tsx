@@ -8,6 +8,9 @@ import {
   setWorkerUrl,
   type ExpressionSpecification,
   type GeoJSONSource,
+  type MapGeoJSONFeature,
+  type Point,
+  type PointLike,
   type StyleSpecification,
 } from "maplibre-gl"
 // MapLibre locates its worker next to its own file, which breaks once Vite pre-bundles or bundles it:
@@ -214,7 +217,7 @@ function networkPopupContent(properties: Record<string, unknown>): HTMLElement {
   return box
 }
 
-function addNetworkLayers(map: MapLibreMap, popup: Popup, dark: boolean) {
+function addNetworkLayers(map: MapLibreMap, dark: boolean) {
   const labels = networkLabelColors(dark)
 
   map.addSource(NETWORK_SOURCE.lines, { type: "geojson", data: EMPTY_LINES })
@@ -278,23 +281,9 @@ function addNetworkLayers(map: MapLibreMap, popup: Popup, dark: boolean) {
       "text-halo-width": 1.5,
     },
   })
-
-  map.on("mouseenter", NETWORK_LINE_LAYERS, (event) => {
-    const feature = event.features?.[0]
-    if (!feature) return
-    map.getCanvas().style.cursor = "pointer"
-    popup.setLngLat(event.lngLat).setDOMContent(networkPopupContent(feature.properties)).addTo(map)
-  })
-  map.on("mousemove", NETWORK_LINE_LAYERS, (event) => {
-    popup.setLngLat(event.lngLat)
-  })
-  map.on("mouseleave", NETWORK_LINE_LAYERS, () => {
-    map.getCanvas().style.cursor = ""
-    popup.remove()
-  })
 }
 
-function addIncidentLayers(map: MapLibreMap, onSelect: (id: string) => void) {
+function addIncidentLayers(map: MapLibreMap) {
   const palette = readPalette(document.documentElement.classList.contains("dark"))
 
   map.addSource(SOURCE.points, {
@@ -374,31 +363,120 @@ function addIncidentLayers(map: MapLibreMap, onSelect: (id: string) => void) {
     },
   })
 
-  // Clicking a cluster (disc or count label) zooms to the level where it splits.
-  map.on("click", [LAYER.clusters, LAYER.clusterCount], (event) => {
-    const feature = event.features?.[0]
-    if (!feature || feature.geometry.type !== "Point") return
-    const clusterId = feature.properties.cluster_id
+}
+
+const POINT_LAYERS: readonly string[] = [LAYER.points, LAYER.selected]
+const INCIDENT_LAYERS: readonly string[] = [...POINT_LAYERS, LAYER.clusters, LAYER.clusterCount]
+/** Half the side of the hit box around the pointer, in px. */
+const HIT_TOLERANCE = 6
+
+/**
+ * Rendered features under the pointer, with a tolerance box. Layers that do not exist yet
+ * (or are hidden) return nothing, so callers can pass the full list.
+ */
+function queryAt(map: MapLibreMap, point: Point, layerIds: readonly string[]): MapGeoJSONFeature[] {
+  const layers = layerIds.filter((id) => map.getLayer(id) !== undefined)
+  if (layers.length === 0) return []
+  const box: [PointLike, PointLike] = [
+    [point.x - HIT_TOLERANCE, point.y - HIT_TOLERANCE],
+    [point.x + HIT_TOLERANCE, point.y + HIT_TOLERANCE],
+  ]
+  return map.queryRenderedFeatures(box, { layers })
+}
+
+/** Feature property; typed unknown so callers narrow it before use. */
+function propertyOf(feature: MapGeoJSONFeature, key: string): unknown {
+  return feature.properties?.[key]
+}
+
+/** Point feature nearest the pointer, measured on screen. */
+function closestFeature(map: MapLibreMap, features: MapGeoJSONFeature[], point: Point): MapGeoJSONFeature | undefined {
+  let closest: MapGeoJSONFeature | undefined
+  let closestDistance = Infinity
+  for (const feature of features) {
+    if (feature.geometry.type !== "Point") continue
+    const projected = map.project(feature.geometry.coordinates as [number, number])
+    const distance = Math.hypot(projected.x - point.x, projected.y - point.y)
+    if (distance < closestDistance) {
+      closest = feature
+      closestDistance = distance
+    }
+  }
+  return closest
+}
+
+/**
+ * One map-level mousemove and click handler own the cursor and the clicks for incidents and network lines.
+ * Per-layer handlers overwrote each other's cursor where a dot sits on a line, and exact-pixel hits missed small dots.
+ */
+function addMapInteractions(map: MapLibreMap, popup: Popup, onSelect: (id: string) => void) {
+  // Key of the départ/segment the popup shows; its DOM is rebuilt only when this changes.
+  let popupKey: string | null = null
+  const hidePopup = () => {
+    popupKey = null
+    popup.remove()
+  }
+
+  map.on("mousemove", (event) => {
+    const canvas = map.getCanvas()
+    if (queryAt(map, event.point, INCIDENT_LAYERS).length > 0) {
+      canvas.style.cursor = "pointer"
+      hidePopup()
+      return
+    }
+    const line = queryAt(map, event.point, NETWORK_LINE_LAYERS)[0]
+    if (!line) {
+      canvas.style.cursor = ""
+      hidePopup()
+      return
+    }
+    canvas.style.cursor = "pointer"
+    const properties = line.properties ?? {}
+    const key = `${textOf(properties.departId)}|${properties.underground === true}`
+    if (key !== popupKey) {
+      popupKey = key
+      popup.setDOMContent(networkPopupContent(properties))
+    }
+    popup.setLngLat(event.lngLat)
+    if (!popup.isOpen()) popup.addTo(map)
+  })
+
+  map.on("mouseout", () => {
+    map.getCanvas().style.cursor = ""
+    hidePopup()
+  })
+
+  map.on("click", (event) => {
+    const incidents = queryAt(map, event.point, INCIDENT_LAYERS)
+
+    // An unclustered dot wins over a cluster; among several, the one nearest the pointer.
+    const dot = closestFeature(
+      map,
+      incidents.filter((feature) => POINT_LAYERS.includes(feature.layer.id) && typeof propertyOf(feature, "id") === "string"),
+      event.point,
+    )
+    const id = dot ? propertyOf(dot, "id") : undefined
+    if (typeof id === "string") {
+      onSelect(id)
+      return
+    }
+
+    // Clicking a cluster (disc or count label) zooms to the level where it splits.
+    const cluster = closestFeature(
+      map,
+      incidents.filter((feature) => typeof propertyOf(feature, "cluster_id") === "number"),
+      event.point,
+    )
+    if (!cluster || cluster.geometry.type !== "Point") return
+    const clusterId = propertyOf(cluster, "cluster_id")
     if (typeof clusterId !== "number") return
-    const center = feature.geometry.coordinates as [number, number]
+    const center = cluster.geometry.coordinates as [number, number]
     const source = map.getSource<GeoJSONSource>(SOURCE.points)
     if (!source) return
     source.getClusterExpansionZoom(clusterId).then(
       (zoom) => map.easeTo({ center, zoom }),
       () => undefined,
     )
-  })
-
-  map.on("click", LAYER.points, (event) => {
-    const id = event.features?.[0]?.properties.id
-    if (typeof id === "string") onSelect(id)
-  })
-
-  map.on("mouseenter", [LAYER.clusters, LAYER.clusterCount, LAYER.points], () => {
-    map.getCanvas().style.cursor = "pointer"
-  })
-  map.on("mouseleave", [LAYER.clusters, LAYER.clusterCount, LAYER.points], () => {
-    map.getCanvas().style.cursor = ""
   })
 }
 
@@ -496,8 +574,9 @@ export function IncidentMap({
       const popup = new Popup({ closeButton: false, closeOnClick: false, className: "network-popup", offset: 12 })
       networkPopupRef.current = popup
       // Network first so the incident layers are drawn above it.
-      addNetworkLayers(map, popup, document.documentElement.classList.contains("dark"))
-      addIncidentLayers(map, (id) => onSelectRef.current(id))
+      addNetworkLayers(map, document.documentElement.classList.contains("dark"))
+      addIncidentLayers(map)
+      addMapInteractions(map, popup, (id) => onSelectRef.current(id))
       setReady(true)
     })
     mapRef.current = map

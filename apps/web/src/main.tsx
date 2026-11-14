@@ -8,8 +8,14 @@ import { ThemeProvider } from "@/components/shared/ThemeProvider"
 import { Toaster } from "@/components/ui/sonner"
 import { AuthProvider } from "@/features/auth/AuthProvider"
 import { queryClient } from "@/lib/queryClient"
+import { reloadForNewVersion } from "@/lib/staleBuild"
 
 import "./index.css"
+
+// Vite reports a page file that failed to download (typically after a new deploy) through this event.
+window.addEventListener("vite:preloadError", (event) => {
+  if (reloadForNewVersion()) event.preventDefault()
+})
 
 const rootElement = document.getElementById("root")
 if (!rootElement) {

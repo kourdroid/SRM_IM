@@ -1,10 +1,16 @@
+import { useState } from "react"
 import { isRouteErrorResponse, Link, useRouteError } from "react-router"
 
 import { Button } from "@/components/ui/button"
+import { isStaleBuildError, reloadForNewVersion } from "@/lib/staleBuild"
 
 /** Route-level error boundary: explains the failure in French and offers a way back. */
 export function RouteErrorPage() {
   const error = useRouteError()
+  // A page file from the previous deploy is gone: reload once to get the new version instead of
+  // showing an error the user has to clear by hand.
+  const [reloading] = useState(() => isStaleBuildError(error) && reloadForNewVersion())
+  if (reloading) return null
   const notFound = isRouteErrorResponse(error) && error.status === 404
   const title = notFound ? "Page introuvable" : "Une erreur est survenue"
   const description = notFound

@@ -179,6 +179,19 @@
   --shadow-soft-lg: var(--soft-shadow-lg);
 }
 
+/* Motion tokens: snappy 120-260ms. Entrances ease-out, exits ease-in and shorter, symmetric moves ease-in-out. */
+@theme static {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+
+  --animate-reveal: motion-reveal var(--duration-base) var(--ease-out) both;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -192,5 +205,45 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Mount-only reveal for first paint (see components/shared/Reveal.tsx): a short fade with a 4px rise. */
+@keyframes motion-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Reduced motion: no slides, zooms, pulses or travel. Opacity still changes, but within one frame. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    --tw-enter-translate-x: 0px !important;
+    --tw-enter-translate-y: 0px !important;
+    --tw-exit-translate-x: 0px !important;
+    --tw-exit-translate-y: 0px !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+  }
+
+  .animate-reveal {
+    animation: none;
+  }
+
+  [data-slot="button"]:active {
+    scale: none;
+    translate: none;
   }
 }

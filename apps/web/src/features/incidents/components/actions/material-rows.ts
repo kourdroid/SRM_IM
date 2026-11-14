@@ -35,11 +35,17 @@ export function materialKey(value: string): string {
   return normalizeMaterialName(value).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
 }
 
-/** Parses a positive quantity typed with either "," or "." as the decimal separator. */
-export function parseQuantity(value: string): number | null {
-  const normalized = value.trim().replace(",", ".")
-  if (normalized === "") return null
-  const parsed = Number(normalized)
+/**
+ * Quantity with an optional "x" marker before or after the number, either "," or "." as the decimal
+ * separator, and spaces around the number: "3", "3,5", " 3.5 ", "x3", "3x", "x 3,5", "3 x".
+ */
+const QUANTITY_PATTERN = /^(?:[x×]\s*)?(\d+(?:[.,]\d*)?|[.,]\d+)(?:\s*[x×])?$/i
+
+/** Parses a positive quantity. Accepts a French decimal comma, surrounding spaces and an "x" marker. Returns null when invalid. */
+export function parseQuantity(input: string): number | null {
+  const match = QUANTITY_PATTERN.exec(input.trim())
+  if (!match) return null
+  const parsed = Number(match[1].replace(",", "."))
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 

@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react"
-import type { ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
 
 import { NetworkBadge } from "@/components/shared/NetworkBadge"
 import { StatusPill } from "@/components/shared/StatusPill"
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { SheetContent, SheetDescription, SheetHeader, SheetTitle, Sheet } from "@/components/ui/sheet"
 import { useIsAdmin } from "@/features/auth/useIsAdmin"
 import { isLateEntry, type Incident } from "@/data/incidents"
+import { incidentRecentLabel, rememberIncident } from "@/lib/recentIncidents"
 import { formatDateTime } from "@/lib/format"
 
 import {
@@ -63,6 +64,15 @@ function IncidentDetails({ incident, onArchived }: { incident: Incident; onArchi
   const late = isLateEntry(incident)
   const position = hasPosition(incident)
   const locationLabel = incident.village ? `${incident.commune} · ${incident.village}` : incident.commune
+  const recentLabel = incidentRecentLabel({
+    incidentType: incident.incidentType,
+    village: incident.village,
+    commune: incident.commune,
+  })
+
+  useEffect(() => {
+    rememberIncident({ id: incident.id, label: recentLabel, network: incident.network })
+  }, [incident.id, incident.network, recentLabel])
 
   return (
     <div className="flex h-full flex-col">

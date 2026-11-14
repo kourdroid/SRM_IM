@@ -105,6 +105,26 @@ function compareOrder(a: { sortOrder: number; name: string }, b: { sortOrder: nu
   return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "fr")
 }
 
+/** Incident types are grouped by network (BT, then MT), then sorted like every catalogue. */
+function compareIncidentTypes(a: IncidentTypeOption, b: IncidentTypeOption): number {
+  return a.networkType.localeCompare(b.networkType) || compareOrder(a, b)
+}
+
+/** Applies saved fields to the cached rows with the same ids, then sorts them for display. */
+function mergeRows<TRow extends { id: string }>(
+  rows: readonly TRow[],
+  changes: readonly ({ id: string } & Partial<TRow>)[],
+  sort: (a: TRow, b: TRow) => number,
+): TRow[] {
+  const changesById = new Map(changes.map((change) => [change.id, change]))
+  return rows
+    .map((row): TRow => {
+      const change = changesById.get(row.id)
+      return change ? { ...row, ...change } : row
+    })
+    .sort(sort)
+}
+
 async function listRows<T>(fn: string, fallback: string): Promise<T[]> {
   const { data, error } = await supabase.rpc(fn)
   throwIfError(error, fallback)
@@ -137,7 +157,7 @@ export async function fetchIncidentTypes(): Promise<IncidentTypeOption[]> {
       sortOrder: toNumber(row.sort_order),
       incidentCount: toNumber(row.incident_count),
     }))
-    .sort((a, b) => a.networkType.localeCompare(b.networkType) || compareOrder(a, b))
+    .sort(compareIncidentTypes)
 }
 
 export async function fetchDepartsHta(): Promise<DepartHtaOption[]> {
@@ -256,6 +276,32 @@ function useWriteMutation<TVariables>(
   })
 }
 
+/**
+ * Optimistic write for a cached list: `change` shows the new values at once, the snapshot is restored if the
+ * write fails, and the queries are refreshed when it settles.
+ */
+function useOptimisticWrite<TVariables, TRow extends { id: string }>(
+  write: (variables: TVariables) => Promise<void>,
+  listKey: QueryKey,
+  change: (rows: TRow[], variables: TVariables) => TRow[],
+  invalidations: readonly QueryKey[],
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: write,
+    onMutate: async (variables: TVariables) => {
+      await queryClient.cancelQueries({ queryKey: listKey })
+      const previous = queryClient.getQueryData<TRow[]>(listKey)
+      if (previous) queryClient.setQueryData<TRow[]>(listKey, change(previous, variables))
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData<TRow[]>(listKey, context.previous)
+    },
+    onSettled: () => Promise.all(invalidations.map((queryKey) => queryClient.invalidateQueries({ queryKey }))),
+  })
+}
+
 export function useCommunesAdmin() {
   return useQuery({ queryKey: REFERENCE_KEYS.communes, queryFn: fetchCommunes })
 }
@@ -280,16 +326,24 @@ export function useCreateIncidentType() {
   return useWriteMutation(createIncidentType, INCIDENT_TYPE_INVALIDATIONS)
 }
 
+/** Toggling active or renaming shows at once; the list is restored if the save fails. */
 export function useSaveIncidentType() {
-  return useWriteMutation(saveIncidentType, INCIDENT_TYPE_INVALIDATIONS)
+  return useOptimisticWrite<IncidentTypeInput, IncidentTypeOption>(
+    saveIncidentType,
+    REFERENCE_KEYS.incidentTypes,
+    (rows, input) => mergeRows(rows, [input], compareIncidentTypes),
+    INCIDENT_TYPE_INVALIDATIONS,
+  )
 }
 
-/** Saves the new sort order of several incident types at once. */
+/** Saves the new sort order of several incident types at once; the rows move at once. */
 export function useSaveIncidentTypeOrder() {
-  return useWriteMutation(
-    async (inputs: IncidentTypeInput[]) => {
+  return useOptimisticWrite<IncidentTypeInput[], IncidentTypeOption>(
+    async (inputs) => {
       await Promise.all(inputs.map((input) => saveIncidentType(input)))
     },
+    REFERENCE_KEYS.incidentTypes,
+    (rows, inputs) => mergeRows(rows, inputs, compareIncidentTypes),
     INCIDENT_TYPE_INVALIDATIONS,
   )
 }
@@ -306,16 +360,24 @@ export function useCreateDepartHta() {
   return useWriteMutation(createDepartHta, DEPART_HTA_INVALIDATIONS)
 }
 
+/** Toggling active or renaming shows at once; the list is restored if the save fails. */
 export function useSaveDepartHta() {
-  return useWriteMutation(saveDepartHta, DEPART_HTA_INVALIDATIONS)
+  return useOptimisticWrite<DepartHtaInput, DepartHtaOption>(
+    saveDepartHta,
+    REFERENCE_KEYS.departsHta,
+    (rows, input) => mergeRows(rows, [input], compareOrder),
+    DEPART_HTA_INVALIDATIONS,
+  )
 }
 
-/** Saves the new sort order of several Départs HTA at once. */
+/** Saves the new sort order of several Départs HTA at once; the rows move at once. */
 export function useSaveDepartHtaOrder() {
-  return useWriteMutation(
-    async (inputs: DepartHtaInput[]) => {
+  return useOptimisticWrite<DepartHtaInput[], DepartHtaOption>(
+    async (inputs) => {
       await Promise.all(inputs.map((input) => saveDepartHta(input)))
     },
+    REFERENCE_KEYS.departsHta,
+    (rows, inputs) => mergeRows(rows, inputs, compareOrder),
     DEPART_HTA_INVALIDATIONS,
   )
 }
@@ -332,16 +394,24 @@ export function useCreateMaterial() {
   return useWriteMutation(createMaterial, MATERIAL_INVALIDATIONS)
 }
 
+/** Toggling active or renaming shows at once; the list is restored if the save fails. */
 export function useSaveMaterial() {
-  return useWriteMutation(saveMaterial, MATERIAL_INVALIDATIONS)
+  return useOptimisticWrite<MaterialInput, MaterialOption>(
+    saveMaterial,
+    REFERENCE_KEYS.materials,
+    (rows, input) => mergeRows(rows, [input], compareOrder),
+    MATERIAL_INVALIDATIONS,
+  )
 }
 
-/** Saves the new sort order of several materials at once. */
+/** Saves the new sort order of several materials at once; the rows move at once. */
 export function useSaveMaterialOrder() {
-  return useWriteMutation(
-    async (inputs: MaterialInput[]) => {
+  return useOptimisticWrite<MaterialInput[], MaterialOption>(
+    async (inputs) => {
       await Promise.all(inputs.map((input) => saveMaterial(input)))
     },
+    REFERENCE_KEYS.materials,
+    (rows, inputs) => mergeRows(rows, inputs, compareOrder),
     MATERIAL_INVALIDATIONS,
   )
 }

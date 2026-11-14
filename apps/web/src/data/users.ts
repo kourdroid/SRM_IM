@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 
 import { cleanLabel } from "@/data/incidents"
 import { describeError } from "@/lib/rpc"
@@ -35,6 +35,8 @@ export const MIN_PASSWORD_LENGTH = 8
 /** Every user query key starts with "users", so invalidating it refreshes the whole module. */
 export const USERS_QUERY_KEY = ["users"] as const
 
+const USERS_LIST_KEY = [...USERS_QUERY_KEY, "list"] as const
+
 const ROLES: readonly UserRole[] = ["field", "admin", "director"]
 const APPROVAL_STATUSES: readonly ApprovalStatus[] = ["pending", "approved", "rejected"]
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -50,7 +52,7 @@ type AdminUserRow = {
 /** Every user, from the get_admin_users RPC. Unknown roles fall back to field, unknown statuses to pending. */
 export function useUsers() {
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "list"],
+    queryKey: USERS_LIST_KEY,
     queryFn: fetchUsers,
   })
 }
@@ -68,7 +70,7 @@ async function fetchUsers(): Promise<ManagedUser[]> {
   }))
 }
 
-/** Changes the role of a user (field, admin or director). */
+/** Changes the role of a user (field, admin or director). The row shows the new role at once. */
 export function useUpdateUserRole() {
   const queryClient = useQueryClient()
 
@@ -77,11 +79,13 @@ export function useUpdateUserRole() {
       if (!ROLES.includes(role)) throw new Error("Rôle invalide.")
       await updateProfile(id, { role }, "Mise à jour du rôle impossible")
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
+    onMutate: ({ id, role }) => optimisticUserUpdate(queryClient, id, { role }),
+    onError: (_error, _variables, context) => restoreUsers(queryClient, context),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
   })
 }
 
-/** Approves or rejects an account (self-service signups start as pending). */
+/** Approves or rejects an account (self-service signups start as pending). The badge changes at once. */
 export function useUpdateUserApproval() {
   const queryClient = useQueryClient()
 
@@ -90,8 +94,34 @@ export function useUpdateUserApproval() {
       if (!APPROVAL_STATUSES.includes(status)) throw new Error("Statut invalide.")
       await updateProfile(id, { approval_status: status }, "Mise à jour du statut impossible")
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
+    onMutate: ({ id, status }) => optimisticUserUpdate(queryClient, id, { approvalStatus: status }),
+    onError: (_error, _variables, context) => restoreUsers(queryClient, context),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
   })
+}
+
+/** Cached user list before an optimistic change, restored when the write fails. */
+type UsersSnapshot = { previous: ManagedUser[] | undefined }
+
+/** Shows a change to one cached user at once. Cancels in-flight list fetches so they cannot overwrite it. */
+async function optimisticUserUpdate(
+  queryClient: QueryClient,
+  userId: string,
+  patch: Partial<Pick<ManagedUser, "role" | "approvalStatus">>,
+): Promise<UsersSnapshot> {
+  await queryClient.cancelQueries({ queryKey: USERS_QUERY_KEY })
+  const previous = queryClient.getQueryData<ManagedUser[]>(USERS_LIST_KEY)
+  if (previous) {
+    queryClient.setQueryData<ManagedUser[]>(
+      USERS_LIST_KEY,
+      previous.map((user) => (user.id === userId ? { ...user, ...patch } : user)),
+    )
+  }
+  return { previous }
+}
+
+function restoreUsers(queryClient: QueryClient, snapshot: UsersSnapshot | undefined): void {
+  if (snapshot?.previous) queryClient.setQueryData<ManagedUser[]>(USERS_LIST_KEY, snapshot.previous)
 }
 
 /** Creates an approved account with a temporary password. The RPC enforces the rules and French messages. */

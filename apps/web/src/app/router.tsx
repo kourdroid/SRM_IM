@@ -8,6 +8,7 @@ import { RequireAuth } from "@/features/auth/RequireAuth"
 import { RequireRole } from "@/features/auth/RequireRole"
 
 import { MODULES } from "./modules"
+import { pageLoaders } from "./preload"
 
 // Every 'soon' module gets a route rendering the generic placeholder.
 const comingSoonRoutes = MODULES.filter((module) => module.status === "soon").map((module) => ({
@@ -31,31 +32,31 @@ export const router = createBrowserRouter([
         children: [
           {
             index: true,
-            lazy: async () => ({ Component: (await import("@/features/overview/OverviewPage")).OverviewPage }),
+            lazy: async () => ({ Component: (await pageLoaders.overview()).OverviewPage }),
           },
           {
             path: "carte",
-            lazy: async () => ({ Component: (await import("@/features/map/MapPage")).MapPage }),
+            lazy: async () => ({ Component: (await pageLoaders.map()).MapPage }),
           },
           {
             path: "incidents",
-            lazy: async () => ({ Component: (await import("@/features/incidents/IncidentsPage")).IncidentsPage }),
+            lazy: async () => ({ Component: (await pageLoaders.incidents()).IncidentsPage }),
           },
           {
             path: "notifications",
-            lazy: async () => ({ Component: (await import("@/features/notifications/NotificationsPage")).NotificationsPage }),
+            lazy: async () => ({ Component: (await pageLoaders.notifications()).NotificationsPage }),
           },
           {
             path: "postes",
-            lazy: async () => ({ Component: (await import("@/features/network/NetworkPage")).NetworkPage }),
+            lazy: async () => ({ Component: (await pageLoaders.network()).NetworkPage }),
           },
           {
             path: "admin/rapports",
-            lazy: async () => ({ Component: (await import("@/features/reports/ReportsPage")).ReportsPage }),
+            lazy: async () => ({ Component: (await pageLoaders.reports()).ReportsPage }),
           },
           {
             path: "admin/parametres",
-            lazy: async () => ({ Component: (await import("@/features/settings/SettingsPage")).SettingsPage }),
+            lazy: async () => ({ Component: (await pageLoaders.settings()).SettingsPage }),
           },
           {
             // Reference data and user management change what field agents see: administrators only.
@@ -63,15 +64,15 @@ export const router = createBrowserRouter([
             children: [
               {
                 path: "referentiels/communes",
-                lazy: async () => ({ Component: (await import("@/features/references/ReferencesPage")).ReferencesPage }),
+                lazy: async () => ({ Component: (await pageLoaders.communes()).ReferencesPage }),
               },
               {
                 path: "referentiels/materiels",
-                lazy: async () => ({ Component: (await import("@/features/references/MaterialsPage")).MaterialsPage }),
+                lazy: async () => ({ Component: (await pageLoaders.materials()).MaterialsPage }),
               },
               {
                 path: "admin/utilisateurs",
-                lazy: async () => ({ Component: (await import("@/features/users/UsersPage")).UsersPage }),
+                lazy: async () => ({ Component: (await pageLoaders.users()).UsersPage }),
               },
             ],
           },

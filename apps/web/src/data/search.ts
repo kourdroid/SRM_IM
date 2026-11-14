@@ -76,14 +76,34 @@ export function matchCommunes(communes: readonly Commune[], query: string, limit
   return [...startsWith, ...contains].slice(0, limit)
 }
 
-/** Runs the incident text search, restricted to the matched communes, newest incident first. */
-async function searchIncidents(term: string, matchedCommunes: readonly Commune[]): Promise<IncidentSearchHit[]> {
-  const communeIds = matchedCommunes.map((commune) => commune.id)
-  const { data, error } = await supabase
+/**
+ * Normalises the raw search box text: "*" is not text, whitespace is collapsed and trimmed, and a leading "#"
+ * is dropped ("#12" searches "12").
+ */
+export function normalizeIncidentSearchTerm(query: string): string {
+  const collapsed = query.replace(/\*/g, " ").replace(/\s+/g, " ").trim()
+  return collapsed.replace(/^#/, "").trim()
+}
+
+/** "bt" or "mt" (any case) means "all incidents of that network", not a text search. */
+export function networkForSearchTerm(term: string): Network | null {
+  const upper = term.toUpperCase()
+  if (upper === "BT") return "BT"
+  if (upper === "MT") return "MT"
+  return null
+}
+
+/** Runs the incident search, newest incident first: all incidents of one network, or a text match restricted to the matched communes. */
+async function searchIncidents(term: string, communes: readonly Commune[]): Promise<IncidentSearchHit[]> {
+  const network = networkForSearchTerm(term)
+  const base = supabase
     .from("incidents")
     .select("id, type, date, status, incident_type, village, commune_id, communes(name)")
     .is("archived_at", null)
-    .or(buildIncidentSearchOr(term, communeIds))
+  const filtered = network
+    ? base.eq("type", network)
+    : base.or(buildIncidentSearchOr(term, matchCommunes(communes, term, Number.POSITIVE_INFINITY).map((commune) => commune.id)))
+  const { data, error } = await filtered
     .order("date", { ascending: false })
     .order("id", { ascending: false })
     .limit(INCIDENT_SEARCH_LIMIT)
@@ -103,18 +123,20 @@ async function searchIncidents(term: string, matchedCommunes: readonly Commune[]
   })
 }
 
-/** TanStack Query hook. `query` is the already-debounced raw text from the caller; it is trimmed inside. */
+/** TanStack Query hook. `query` is the already-debounced raw text from the caller; it is normalised inside. */
 export function useIncidentSearch(query: string, enabled: boolean) {
   // "*" is a PostgREST wildcard, so it never counts as text: "**" must not search for everything.
-  const term = query.replace(/\*/g, " ").trim()
+  const term = normalizeIncidentSearchTerm(query)
   const communes = useCommunes()
-  const active = enabled && term.length >= INCIDENT_SEARCH_MIN_LENGTH && !communes.isPending
+  // A network search ("bt", "mt") does not need the commune list.
+  const needsCommunes = networkForSearchTerm(term) === null
+  const active = enabled && term.length >= INCIDENT_SEARCH_MIN_LENGTH && (!needsCommunes || !communes.isPending)
 
   return useQuery({
     queryKey: ["search", "incidents", term],
     enabled: active,
     staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
-    queryFn: () => searchIncidents(term, matchCommunes(communes.data ?? [], term, Number.POSITIVE_INFINITY)),
+    queryFn: () => searchIncidents(term, communes.data ?? []),
   })
 }

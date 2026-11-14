@@ -332,11 +332,11 @@ export function IncidentsTable({
           {first}–{last} sur {formatNumber(total)}
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+          <Button variant="ghost" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()} className="relative after:absolute after:-inset-1 after:content-['']">
             <ChevronLeft aria-hidden="true" />
             Précédent
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button variant="ghost" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()} className="relative after:absolute after:-inset-1 after:content-['']">
             Suivant
             <ChevronRight aria-hidden="true" />
           </Button>
@@ -434,7 +434,7 @@ function IncidentActionsMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Actions pour l'incident du ${formatDateTime(incident.date)}`}>
+        <Button variant="ghost" size="icon-sm" aria-label={`Actions pour l'incident du ${formatDateTime(incident.date)}`} className="relative after:absolute after:-inset-1 after:content-['']">
           <EllipsisVertical aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>

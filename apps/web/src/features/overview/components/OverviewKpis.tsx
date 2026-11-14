@@ -26,6 +26,7 @@ export function OverviewKpis({
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <KpiCard
         label={`Incidents · ${periodLabel}`}
+        revealDelay={0}
         value={formatNumber(summary.total)}
         chart={
           <KpiDetail>
@@ -43,6 +44,7 @@ export function OverviewKpis({
 
       <KpiCard
         label="En cours"
+        revealDelay={40}
         value={formatNumber(summary.open)}
         chart={
           <KpiDetail>
@@ -60,6 +62,7 @@ export function OverviewKpis({
 
       <KpiCard
         label="Durée moyenne"
+        revealDelay={80}
         value={formatHours(summary.averageClosureHours)}
         chart={
           <KpiDetail>
@@ -71,6 +74,7 @@ export function OverviewKpis({
       <KpiCard
         label="Réclamations"
         variant="inverted"
+        revealDelay={120}
         value={formatNumber(summary.reclamations)}
         chart={
           <KpiDetail inverted>

@@ -1,8 +1,14 @@
-import { CircleCheck, Package, Pencil, RotateCcw, Trash2 } from "lucide-react"
+import { CircleCheck, Ellipsis, Package, Pencil, RotateCcw, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useIsAdmin } from "@/features/auth/useIsAdmin"
 import { useArchiveIncident, useReopenIncident } from "@/data/incidentMutations"
 import type { Incident } from "@/data/incidents"
@@ -30,30 +36,43 @@ export function IncidentAdminActions({ incident, onArchived }: { incident: Incid
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={() => setActive("edit")}>
-          <Pencil aria-hidden="true" />
-          Modifier
-        </Button>
-        <Button variant="secondary" size="sm" onClick={() => setActive("materials")}>
-          <Package aria-hidden="true" />
-          Matériel
-        </Button>
+      <div className="flex flex-col gap-2">
         {isOpen ? (
-          <Button size="sm" onClick={() => setActive("close")}>
+          <Button size="lg" className="w-full" onClick={() => setActive("close")}>
             <CircleCheck aria-hidden="true" />
-            Clôturer
+            Clôturer l'incident
           </Button>
-        ) : (
-          <Button variant="secondary" size="sm" onClick={() => setActive("reopen")}>
-            <RotateCcw aria-hidden="true" />
-            Rouvrir
+        ) : null}
+        <div className="flex gap-2">
+          {isOpen ? null : (
+            <Button variant="secondary" className="flex-1" onClick={() => setActive("reopen")}>
+              <RotateCcw aria-hidden="true" />
+              Rouvrir
+            </Button>
+          )}
+          <Button variant="secondary" className="flex-1" onClick={() => setActive("edit")}>
+            <Pencil aria-hidden="true" />
+            Modifier
           </Button>
-        )}
-        <Button variant="destructive" size="sm" onClick={() => setActive("archive")}>
-          <Trash2 aria-hidden="true" />
-          Supprimer
-        </Button>
+          <Button variant="secondary" className="flex-1" onClick={() => setActive("materials")}>
+            <Package aria-hidden="true" />
+            Matériel
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" size="default" aria-label="Plus d'actions sur l'incident">
+                <Ellipsis aria-hidden="true" />
+                Plus
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52 rounded-xl shadow-soft-lg">
+              <DropdownMenuItem variant="destructive" onSelect={() => setActive("archive")}>
+                <Trash2 aria-hidden="true" />
+                Supprimer l'incident
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {active === "edit" ? <IncidentEditDialog incident={incident} onClose={closeDialog} /> : null}

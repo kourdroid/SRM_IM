@@ -4,6 +4,7 @@ import { useLocation } from "react-router"
 
 import { EmptyState } from "@/components/shared/EmptyState"
 import { PageHeader } from "@/components/shared/PageHeader"
+import { Reveal } from "@/components/shared/Reveal"
 import { SegmentedControl } from "@/components/shared/SegmentedControl"
 import { Button } from "@/components/ui/button"
 import { PERIOD_OPTIONS, useDashboardFilters, type PeriodKey } from "@/data/filters"
@@ -82,15 +83,19 @@ export function OverviewPage() {
       <>
         <OverviewKpis summary={summary} periodLabel={periodLabel} sparkline={sparkline} />
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <DailyIncidentsCard buckets={buckets} peaks={peaks} className="lg:col-span-2" />
-          <TopTypesCard types={types} search={search} />
-        </div>
+        <Reveal delay={160}>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <DailyIncidentsCard buckets={buckets} peaks={peaks} className="lg:col-span-2" />
+            <TopTypesCard types={types} search={search} />
+          </div>
+        </Reveal>
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <RecentIncidentsCard incidents={recent} search={search} className="lg:col-span-2" />
-          <MapTeaserCard mapped={mapped} total={summary.total} search={search} />
-        </div>
+        <Reveal delay={240}>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <RecentIncidentsCard incidents={recent} search={search} className="lg:col-span-2" />
+            <MapTeaserCard mapped={mapped} total={summary.total} search={search} />
+          </div>
+        </Reveal>
       </>
     )
   }

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { cleanLabel, type IncidentStatus, type Network } from "@/data/incidents"
@@ -84,30 +84,96 @@ export function useUnreadNotificationCount() {
   })
 }
 
-/** Marks one notification as read. Errors are reported with a toast. */
+/** Every notification query key starts with "notifications". */
+const NOTIFICATIONS_KEY = ["notifications"] as const
+const NOTIFICATION_LIST_KEY = ["notifications", "list"] as const
+const UNREAD_COUNT_KEY = ["notifications", "unread-count"] as const
+
+/** Cached notification lists and unread counts, taken before an optimistic change so it can be restored. */
+type NotificationCache = {
+  lists: [QueryKey, AdminNotification[]][]
+  counts: [QueryKey, number][]
+}
+
+/** Marks one notification as read at once. Errors restore the lists and show a toast. */
 export function useAcknowledgeNotification() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: acknowledgeNotification,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-    onError: (error) => toast.error(describeError(error, "La prise en compte a échoué. Réessayez.")),
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_KEY })
+      const cache = snapshotNotifications(queryClient)
+      const acknowledgedAt = new Date().toISOString()
+      const wasUnread = cache.lists.some(([, rows]) => rows.some((row) => row.id === id && row.acknowledgedAt === null))
+
+      for (const [key, rows] of cache.lists) {
+        // The unread-only list drops the row; the full list marks it as read in place.
+        const next = isUnreadListKey(key)
+          ? rows.filter((row) => row.id !== id)
+          : rows.map((row) => (row.id === id ? { ...row, acknowledgedAt: row.acknowledgedAt ?? acknowledgedAt } : row))
+        queryClient.setQueryData<AdminNotification[]>(key, next)
+      }
+      if (wasUnread) {
+        for (const [key, count] of cache.counts) queryClient.setQueryData<number>(key, Math.max(0, count - 1))
+      }
+      return cache
+    },
+    onError: (error, _id, cache) => {
+      if (cache) restoreNotifications(queryClient, cache)
+      toast.error(describeError(error, "La prise en compte a échoué. Réessayez."))
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY }),
   })
 }
 
-/** Marks every unread notification as read, batch by batch, until none is left. */
+/** Marks every unread notification as read at once, then batch by batch on the server, until none is left. */
 export function useAcknowledgeAllNotifications() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: acknowledgeAllNotifications,
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_KEY })
+      const cache = snapshotNotifications(queryClient)
+      const acknowledgedAt = new Date().toISOString()
+
+      for (const [key, rows] of cache.lists) {
+        const next = isUnreadListKey(key)
+          ? []
+          : rows.map((row) => ({ ...row, acknowledgedAt: row.acknowledgedAt ?? acknowledgedAt }))
+        queryClient.setQueryData<AdminNotification[]>(key, next)
+      }
+      for (const [key] of cache.counts) queryClient.setQueryData<number>(key, 0)
+      return cache
+    },
     onSuccess: (count) => {
       if (count > 0) toast.success(count === 1 ? "1 notification marquée comme lue." : `${count} notifications marquées comme lues.`)
-      return queryClient.invalidateQueries({ queryKey: ["notifications"] })
     },
-    onError: (error) => {
+    onError: (error, _variables, cache) => {
+      if (cache) restoreNotifications(queryClient, cache)
       toast.error(describeError(error, "Les notifications n'ont pas toutes pu être marquées comme lues."))
-      void queryClient.invalidateQueries({ queryKey: ["notifications"] })
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY }),
   })
+}
+
+function snapshotNotifications(queryClient: QueryClient): NotificationCache {
+  const lists = queryClient.getQueriesData<AdminNotification[]>({ queryKey: NOTIFICATION_LIST_KEY })
+  const counts = queryClient.getQueriesData<number>({ queryKey: UNREAD_COUNT_KEY })
+  return {
+    lists: lists.flatMap(([key, rows]): [QueryKey, AdminNotification[]][] => (rows ? [[key, rows]] : [])),
+    counts: counts.flatMap(([key, count]): [QueryKey, number][] => (count !== undefined ? [[key, count]] : [])),
+  }
+}
+
+function restoreNotifications(queryClient: QueryClient, cache: NotificationCache): void {
+  for (const [key, rows] of cache.lists) queryClient.setQueryData<AdminNotification[]>(key, rows)
+  for (const [key, count] of cache.counts) queryClient.setQueryData<number>(key, count)
+}
+
+/** The list key holds { unreadOnly, limit }; the unread-only list hides read rows. */
+function isUnreadListKey(key: QueryKey): boolean {
+  const options: unknown = key[2]
+  return typeof options === "object" && options !== null && "unreadOnly" in options && options.unreadOnly === true
 }
 
 async function acknowledgeNotification(id: string): Promise<void> {

@@ -78,14 +78,15 @@ export function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpen
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
+    const name = form.name.replace(/\s+/g, " ").trim()
     try {
       await createUser.mutateAsync({
-        email: form.email,
+        email: form.email.trim().toLowerCase(),
         password: form.password,
-        name: form.name,
+        name,
         role: form.role,
       })
-      toast.success(`Compte créé et approuvé pour ${form.name.trim()}.`)
+      toast.success(`Compte créé et approuvé pour ${name}.`)
       handleOpenChange(false)
     } catch (error) {
       toast.error(describeError(error))

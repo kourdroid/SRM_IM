@@ -34,7 +34,7 @@ export function UserActionsMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Actions pour ${name}`} disabled={busy}>
+        <Button variant="ghost" size="icon-sm" aria-label={`Actions pour ${name}`} disabled={busy} className="relative after:absolute after:-inset-1 after:content-['']">
           <EllipsisVertical aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>

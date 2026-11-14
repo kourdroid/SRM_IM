@@ -38,7 +38,7 @@ import type { Direction, ListStatus } from "@/features/references/reference-util
 const REORDER_LOCKED_REASON = "Effacez la recherche pour changer l'ordre."
 const SKELETON_ROWS = 6
 /** Icon buttons are 32px with a pointer and 44px on touch screens. */
-const ICON_BUTTON_CLASS = "[@media(pointer:coarse)]:size-11"
+const ICON_BUTTON_CLASS = "relative after:absolute after:-inset-1 after:content-[''] [@media(pointer:coarse)]:size-11"
 /** Up and down buttons stay in the DOM for keyboard users; they show on row hover, focus, or on touch screens. */
 const REORDER_REVEAL_CLASS =
   "opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
@@ -227,7 +227,7 @@ export function ReferenceList<T extends ReferenceEntry>({
                       ) : null}
                       {hasActions ? (
                         <TableCell className="w-px">
-                          <div className="flex items-center justify-end gap-0.5">
+                          <div className="flex items-center justify-end gap-2">
                             {onMove ? (
                               <>
                                 <IconAction

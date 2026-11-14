@@ -18,6 +18,8 @@ import { CommandFooter } from "@/components/shared/command/CommandFooter"
 import { CommandRow } from "@/components/shared/command/CommandRow"
 import { CommuneResults } from "@/components/shared/command/CommuneResults"
 import { IncidentResults } from "@/components/shared/command/IncidentResults"
+import { readPaletteUsage, recordPaletteUsage, sortByUsage } from "@/components/shared/command/paletteUsage"
+import { RecentResults } from "@/components/shared/command/RecentResults"
 import { UserResults } from "@/components/shared/command/UserResults"
 import {
   Command,
@@ -35,6 +37,7 @@ import { useAuth } from "@/features/auth/auth-context"
 import { useCurrentUser } from "@/features/auth/useCurrentUser"
 import { useIsAdmin } from "@/features/auth/useIsAdmin"
 import { useDebouncedValue } from "@/features/incidents/useDebouncedValue"
+import { incidentRecentLabel, readRecentIncidents, rememberIncident, type RecentIncident } from "@/lib/recentIncidents"
 import { normalizeSearchText } from "@/lib/text"
 
 import { useTheme } from "./theme-context"
@@ -50,6 +53,10 @@ type StaticItem = {
   icon: LucideIcon
   onSelect: () => void
 }
+
+/** Empty-query caps: how many shortcuts and modules are listed until the user types. */
+const SHORTCUT_LIMIT = 5
+const MODULE_LIMIT = 6
 
 /** Command palette (Ctrl/Cmd+K): incidents, communes, users, shortcuts, actions and modules. */
 export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
@@ -71,6 +78,22 @@ function matchesNeedle(item: StaticItem, needle: string): boolean {
   return normalizeSearchText(`${item.label} ${item.keywords}`).includes(needle)
 }
 
+/** Items matching the query, most used first. Without a query only the first `emptyLimit` items are kept. */
+function visibleItems(
+  items: readonly StaticItem[],
+  usage: Readonly<Record<string, number>>,
+  needle: string,
+  emptyLimit: number,
+): StaticItem[] {
+  const matching = sortByUsage(items, usage).filter((item) => matchesNeedle(item, needle))
+  return needle === "" ? matching.slice(0, emptyLimit) : matching
+}
+
+/** Incident page URL that opens one incident with every period included. */
+function incidentPath(id: string): string {
+  return `/incidents?incident=${encodeURIComponent(id)}&periode=all`
+}
+
 function StaticGroup({ heading, items }: { heading: string; items: StaticItem[] }) {
   if (items.length === 0) return null
   return (
@@ -78,7 +101,14 @@ function StaticGroup({ heading, items }: { heading: string; items: StaticItem[] 
       {items.map((item) => {
         const Icon = item.icon
         return (
-          <CommandItem key={item.value} value={item.value} onSelect={item.onSelect}>
+          <CommandItem
+            key={item.value}
+            value={item.value}
+            onSelect={() => {
+              recordPaletteUsage(item.value)
+              item.onSelect()
+            }}
+          >
             <CommandRow leading={<Icon aria-hidden="true" />} title={item.label} description={item.description} />
           </CommandItem>
         )
@@ -95,6 +125,8 @@ function CommandPalette({ onOpenChange }: { onOpenChange: (open: boolean) => voi
   const { signOut } = useAuth()
   const { resolvedTheme, setTheme } = useTheme()
   const [query, setQuery] = useState("")
+  const [usage] = useState(() => readPaletteUsage())
+  const [recentIncidents] = useState(() => readRecentIncidents())
 
   const trimmed = query.trim()
   const needle = normalizeSearchText(query)
@@ -113,8 +145,18 @@ function CommandPalette({ onOpenChange }: { onOpenChange: (open: boolean) => voi
     action()
   }
 
+  function selectRecent(entry: RecentIncident) {
+    rememberIncident({ id: entry.id, label: entry.label, network: entry.network })
+    runAndClose(() => navigate(incidentPath(entry.id)))
+  }
+
   function selectIncident(hit: IncidentSearchHit) {
-    runAndClose(() => navigate(`/incidents?incident=${encodeURIComponent(hit.id)}&periode=all`))
+    rememberIncident({
+      id: hit.id,
+      label: incidentRecentLabel({ incidentType: hit.incidentType, village: hit.village, commune: hit.commune }),
+      network: hit.network,
+    })
+    runAndClose(() => navigate(incidentPath(hit.id)))
   }
 
   function selectCommune(commune: Commune) {
@@ -215,9 +257,9 @@ function CommandPalette({ onOpenChange }: { onOpenChange: (open: boolean) => voi
       })),
   )
 
-  const visibleShortcuts = shortcuts.filter((item) => matchesNeedle(item, needle))
+  const visibleShortcuts = visibleItems(shortcuts, usage, needle, SHORTCUT_LIMIT)
   const visibleActions = actions.filter((item) => matchesNeedle(item, needle))
-  const visibleModules = modules.filter((item) => matchesNeedle(item, needle))
+  const visibleModules = visibleItems(modules, usage, needle, MODULE_LIMIT)
 
   return (
     <Command shouldFilter={false}>
@@ -228,6 +270,7 @@ function CommandPalette({ onOpenChange }: { onOpenChange: (open: boolean) => voi
         aria-label="Rechercher"
       />
       <CommandList className="max-h-[min(60vh,28rem)]">
+        {hasQuery ? null : <RecentResults entries={recentIncidents} onSelect={selectRecent} />}
         {/* Communes match instantly and take the first selection; incidents arrive from the server a moment later,
             so they come second: what Enter opens is always the row shown on top. */}
         {communeMatches.length > 0 ? <CommuneResults communes={communeMatches} onSelect={selectCommune} /> : null}
@@ -242,7 +285,7 @@ function CommandPalette({ onOpenChange }: { onOpenChange: (open: boolean) => voi
         {isAdmin && hasQuery ? <UserResults query={query} onSelect={selectUser} /> : null}
         <StaticGroup heading="Raccourcis" items={visibleShortcuts} />
         <StaticGroup heading="Actions" items={visibleActions} />
-        <StaticGroup heading="Modules" items={visibleModules} />
+        <StaticGroup heading="Aller à…" items={visibleModules} />
         {hasQuery && !incidents.isFetching ? <CommandEmpty>Aucun résultat pour « {trimmed} »</CommandEmpty> : null}
       </CommandList>
       <CommandFooter />

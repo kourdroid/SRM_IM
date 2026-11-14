@@ -2,6 +2,7 @@ import { LogOut } from "lucide-react"
 import { NavLink } from "react-router"
 
 import { getSectionsForRole, type ModuleItem } from "@/app/modules"
+import { preloadRoute } from "@/app/preload"
 import { useAuth } from "@/features/auth/auth-context"
 import { ROLE_LABELS } from "@/features/auth/roles"
 import { useCurrentUser } from "@/features/auth/useCurrentUser"
@@ -70,6 +71,8 @@ function SidebarItem({ item, onNavigate }: { item: ModuleItem; onNavigate?: () =
       to={item.path}
       end={item.path === "/"}
       onClick={onNavigate}
+      onPointerEnter={() => preloadRoute(item.path)}
+      onFocus={() => preloadRoute(item.path)}
       className={({ isActive }) =>
         cn(
           baseClass,

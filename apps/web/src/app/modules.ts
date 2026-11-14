@@ -39,6 +39,7 @@ export type ModuleSection = {
 }
 
 const ALL_ROLES: Role[] = ["admin", "director"]
+const ADMIN_ONLY: Role[] = ["admin"]
 
 /** Single source of truth for navigation, routes and the command palette. */
 export const MODULE_SECTIONS: ModuleSection[] = [
@@ -49,7 +50,7 @@ export const MODULE_SECTIONS: ModuleSection[] = [
       { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard, path: "/", status: "ready", roles: ALL_ROLES },
       { id: "map", label: "Carte", icon: MapIcon, path: "/carte", status: "ready", roles: ALL_ROLES },
       { id: "incidents", label: "Incidents", icon: TriangleExclamationPoint, path: "/incidents", status: "ready", roles: ALL_ROLES },
-      { id: "notifications", label: "Notifications", icon: Bell, path: "/notifications", status: "soon", roles: ALL_ROLES },
+      { id: "notifications", label: "Notifications", icon: Bell, path: "/notifications", status: "ready", roles: ALL_ROLES },
     ],
   },
   {
@@ -57,24 +58,24 @@ export const MODULE_SECTIONS: ModuleSection[] = [
     label: "Réseau",
     items: [
       { id: "load-control", label: "Contrôle de charge", icon: Gauge, path: "/charge", status: "soon", roles: ALL_ROLES },
-      { id: "substations", label: "Postes et départs", icon: PlugZap, path: "/postes", status: "soon", roles: ALL_ROLES },
+      { id: "substations", label: "Postes et départs", icon: PlugZap, path: "/postes", status: "ready", roles: ALL_ROLES },
     ],
   },
   {
     id: "referentiels",
     label: "Référentiels",
     items: [
-      { id: "communes", label: "Communes et types", icon: MapPinned, path: "/referentiels/communes", status: "soon", roles: ALL_ROLES },
-      { id: "equipment", label: "Matériels", icon: Wrench, path: "/referentiels/materiels", status: "soon", roles: ALL_ROLES },
+      { id: "communes", label: "Communes et types", icon: MapPinned, path: "/referentiels/communes", status: "ready", roles: ADMIN_ONLY },
+      { id: "equipment", label: "Matériels", icon: Wrench, path: "/referentiels/materiels", status: "ready", roles: ADMIN_ONLY },
     ],
   },
   {
     id: "administration",
     label: "Administration",
     items: [
-      { id: "users", label: "Utilisateurs", icon: Users, path: "/admin/utilisateurs", status: "soon", roles: ALL_ROLES },
-      { id: "reports", label: "Rapports et exports", icon: FileSpreadsheet, path: "/admin/rapports", status: "soon", roles: ALL_ROLES },
-      { id: "settings", label: "Paramètres", icon: Settings, path: "/admin/parametres", status: "soon", roles: ALL_ROLES },
+      { id: "users", label: "Utilisateurs", icon: Users, path: "/admin/utilisateurs", status: "ready", roles: ADMIN_ONLY },
+      { id: "reports", label: "Rapports et exports", icon: FileSpreadsheet, path: "/admin/rapports", status: "ready", roles: ALL_ROLES },
+      { id: "settings", label: "Paramètres", icon: Settings, path: "/admin/parametres", status: "ready", roles: ALL_ROLES },
     ],
   },
 ]

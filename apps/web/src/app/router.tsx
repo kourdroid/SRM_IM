@@ -5,6 +5,7 @@ import { ComingSoonPage } from "@/components/shared/ComingSoonPage"
 import { RouteErrorPage } from "@/components/shared/RouteErrorPage"
 import { LoginPage } from "@/features/auth/LoginPage"
 import { RequireAuth } from "@/features/auth/RequireAuth"
+import { RequireRole } from "@/features/auth/RequireRole"
 
 import { MODULES } from "./modules"
 
@@ -39,6 +40,40 @@ export const router = createBrowserRouter([
           {
             path: "incidents",
             lazy: async () => ({ Component: (await import("@/features/incidents/IncidentsPage")).IncidentsPage }),
+          },
+          {
+            path: "notifications",
+            lazy: async () => ({ Component: (await import("@/features/notifications/NotificationsPage")).NotificationsPage }),
+          },
+          {
+            path: "postes",
+            lazy: async () => ({ Component: (await import("@/features/network/NetworkPage")).NetworkPage }),
+          },
+          {
+            path: "admin/rapports",
+            lazy: async () => ({ Component: (await import("@/features/reports/ReportsPage")).ReportsPage }),
+          },
+          {
+            path: "admin/parametres",
+            lazy: async () => ({ Component: (await import("@/features/settings/SettingsPage")).SettingsPage }),
+          },
+          {
+            // Reference data and user management change what field agents see: administrators only.
+            element: <RequireRole role="admin" />,
+            children: [
+              {
+                path: "referentiels/communes",
+                lazy: async () => ({ Component: (await import("@/features/references/ReferencesPage")).ReferencesPage }),
+              },
+              {
+                path: "referentiels/materiels",
+                lazy: async () => ({ Component: (await import("@/features/references/MaterialsPage")).MaterialsPage }),
+              },
+              {
+                path: "admin/utilisateurs",
+                lazy: async () => ({ Component: (await import("@/features/users/UsersPage")).UsersPage }),
+              },
+            ],
           },
           ...comingSoonRoutes,
         ],

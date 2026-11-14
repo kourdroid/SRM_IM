@@ -1,5 +1,6 @@
 import { RefreshCw, TriangleExclamationPoint, UserPlus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "react-router"
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { EmptyState } from "@/components/shared/EmptyState"
@@ -38,6 +39,36 @@ export function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const recherche = searchParams.get("recherche")
+  const nouveau = searchParams.get("nouveau")
+  const [appliedRecherche, setAppliedRecherche] = useState<string | null>(null)
+  const [appliedNouveau, setAppliedNouveau] = useState(false)
+
+  // URL params are applied during render, comparing against the last applied value, so a
+  // navigation to this page while it is mounted updates the state without setState in an effect.
+  if (recherche !== appliedRecherche) {
+    setAppliedRecherche(recherche)
+    if (recherche !== null) setFilters((prev) => ({ ...prev, search: recherche }))
+  }
+  if ((nouveau === "1") !== appliedNouveau) {
+    setAppliedNouveau(nouveau === "1")
+    if (nouveau === "1") setCreateOpen(true)
+  }
+
+  // Consumed params are removed in one update, since two separate calls would overwrite each other.
+  useEffect(() => {
+    if (recherche === null && nouveau === null) return
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete("recherche")
+        next.delete("nouveau")
+        return next
+      },
+      { replace: true },
+    )
+  }, [recherche, nouveau, setSearchParams])
 
   const users = usersQuery.data ?? EMPTY_USERS
   const counts = useMemo(() => countUsers(users), [users])

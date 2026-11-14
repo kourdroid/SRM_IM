@@ -5,6 +5,7 @@ import { NetworkBadge } from "@/components/shared/NetworkBadge"
 import { StatusPill } from "@/components/shared/StatusPill"
 import { Button } from "@/components/ui/button"
 import { SheetContent, SheetDescription, SheetHeader, SheetTitle, Sheet } from "@/components/ui/sheet"
+import { useIsAdmin } from "@/features/auth/useIsAdmin"
 import { isLateEntry, type Incident } from "@/data/incidents"
 import { formatDateTime } from "@/lib/format"
 
@@ -14,9 +15,11 @@ import {
   googleMapsPlaceUrl,
   hasPosition,
 } from "../table-utils"
+import { IncidentAdminActions } from "./actions/IncidentAdminActions"
 
 /**
- * Read-only side panel with the full incident. `incident` is undefined while loading or when the
+ * Side panel with the full incident. Admins get the action buttons (edit, materials, close, reopen,
+ * archive); directors see the same details read-only. `incident` is undefined while loading or when the
  * incident is not in the current filter selection.
  */
 export function IncidentDetailSheet({
@@ -37,7 +40,7 @@ export function IncidentDetailSheet({
         className="w-full border-0 bg-card p-0 shadow-soft-lg data-[side=right]:border-0 sm:max-w-md data-[side=right]:sm:max-w-md"
       >
         {incident ? (
-          <IncidentDetails incident={incident} />
+          <IncidentDetails incident={incident} onArchived={() => onOpenChange(false)} />
         ) : (
           <div className="flex flex-1 flex-col gap-2 p-6 pt-14">
             <SheetHeader className="p-0">
@@ -55,7 +58,8 @@ export function IncidentDetailSheet({
   )
 }
 
-function IncidentDetails({ incident }: { incident: Incident }) {
+function IncidentDetails({ incident, onArchived }: { incident: Incident; onArchived: () => void }) {
+  const isAdmin = useIsAdmin()
   const late = isLateEntry(incident)
   const position = hasPosition(incident)
   const locationLabel = incident.village ? `${incident.commune} · ${incident.village}` : incident.commune
@@ -69,6 +73,12 @@ function IncidentDetails({ incident }: { incident: Incident }) {
         <SheetTitle className="text-lg leading-snug">{incident.incidentType}</SheetTitle>
         <SheetDescription>{locationLabel}</SheetDescription>
       </SheetHeader>
+
+      {isAdmin ? (
+        <div className="px-6 pb-4">
+          <IncidentAdminActions incident={incident} onArchived={onArchived} />
+        </div>
+      ) : null}
 
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         <dl className="flex flex-col gap-2">
@@ -98,7 +108,17 @@ function IncidentDetails({ incident }: { incident: Incident }) {
             <StatusPill status={incident.status} />
           </DetailRow>
           <DetailRow label="Réclamation">{incident.reclamation ? "Oui" : "Non"}</DetailRow>
+          {incident.reclamation ? (
+            <>
+              <DetailRow label="Nom du réclamant">{incident.reclamationName ?? "Non spécifié"}</DetailRow>
+              <DetailRow label="Déposée par">{incident.reclamationBy ?? "Non spécifié"}</DetailRow>
+            </>
+          ) : null}
           <DetailRow label="Agent">{incident.agentName ?? "—"}</DetailRow>
+          <DetailRow label="Matériel utilisé">{incident.equipmentUsed || "Non renseigné"}</DetailRow>
+          <DetailBlock label="Description">
+            {incident.description ?? <span className="text-muted-foreground">Aucune description fournie.</span>}
+          </DetailBlock>
           <DetailRow label="Position">
             {position && incident.latitude !== null && incident.longitude !== null ? (
               <span className="flex flex-col items-end gap-1">
@@ -127,6 +147,16 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
     <div className="flex items-start justify-between gap-4 rounded-lg bg-muted/50 px-3.5 py-3">
       <dt className="shrink-0 text-sm text-muted-foreground">{label}</dt>
       <dd className="min-w-0 text-right text-sm font-medium tabular-nums">{children}</dd>
+    </div>
+  )
+}
+
+/** Full-width variant of DetailRow for long text, such as the description. */
+function DetailBlock({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3.5 py-3">
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="text-sm leading-relaxed whitespace-pre-line">{children}</dd>
     </div>
   )
 }

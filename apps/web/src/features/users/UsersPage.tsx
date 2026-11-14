@@ -1,6 +1,125 @@
-import { PageHeader } from "@/components/shared/PageHeader"
+import { RefreshCw, TriangleExclamationPoint, UserPlus } from "lucide-react"
+import { useMemo, useState } from "react"
 
-/** Placeholder replaced by the Utilisateurs module. */
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { PageHeader } from "@/components/shared/PageHeader"
+import { Button } from "@/components/ui/button"
+import { useUsers, type ManagedUser } from "@/data/users"
+import { describeError } from "@/lib/rpc"
+
+import { CreateUserDialog } from "./components/CreateUserDialog"
+import { PendingRequestsCard } from "./components/PendingRequestsCard"
+import { UsersFilterBar } from "./components/UsersFilterBar"
+import { UsersKpis } from "./components/UsersKpis"
+import { UsersSkeleton } from "./components/UsersSkeleton"
+import { UsersTable } from "./components/UsersTable"
+import {
+  DEFAULT_USER_FILTERS,
+  countUsers,
+  displayName,
+  filterUsers,
+  hasActiveUserFilters,
+  sortUsers,
+  type UserFilters,
+} from "./user-utils"
+import { useUserActions } from "./useUserActions"
+
+const EMPTY_USERS: ManagedUser[] = []
+
+/**
+ * Administration of the accounts: pending requests, KPIs, search and filters, the full user table,
+ * account creation and a confirmed deletion. Reserved for administrators by the router.
+ */
 export function UsersPage() {
-  return <PageHeader title="Utilisateurs" description="Module en cours de construction." />
+  const usersQuery = useUsers()
+  const actions = useUserActions()
+  const [filters, setFilters] = useState<UserFilters>(DEFAULT_USER_FILTERS)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  const users = usersQuery.data ?? EMPTY_USERS
+  const counts = useMemo(() => countUsers(users), [users])
+  const pending = useMemo(
+    () => sortUsers(users.filter((user) => user.approvalStatus === "pending")),
+    [users],
+  )
+  const rows = useMemo(() => sortUsers(filterUsers(users, filters)), [users, filters])
+
+  function requestDelete(user: ManagedUser) {
+    setDeleteTarget(user)
+    setDeleteOpen(true)
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Utilisateurs"
+        description="Demandes d'accès, rôles et comptes de l'application."
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <UserPlus aria-hidden="true" />
+            Nouvel utilisateur
+          </Button>
+        }
+      />
+
+      {usersQuery.isPending ? (
+        <UsersSkeleton />
+      ) : usersQuery.isError ? (
+        <EmptyState
+          icon={TriangleExclamationPoint}
+          title="Impossible de charger les utilisateurs"
+          description={describeError(usersQuery.error)}
+          action={
+            <Button variant="secondary" onClick={() => void usersQuery.refetch()}>
+              <RefreshCw aria-hidden="true" />
+              Réessayer
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <UsersKpis counts={counts} />
+
+          {pending.length > 0 ? <PendingRequestsCard users={pending} actions={actions} /> : null}
+
+          <div className="flex flex-col gap-3">
+            <UsersFilterBar
+              filters={filters}
+              onChange={setFilters}
+              onReset={() => setFilters(DEFAULT_USER_FILTERS)}
+            />
+            <UsersTable
+              rows={rows}
+              totalCount={users.length}
+              actions={actions}
+              onRequestDelete={requestDelete}
+              onResetFilters={() => setFilters(DEFAULT_USER_FILTERS)}
+              hasActiveFilters={hasActiveUserFilters(filters)}
+            />
+          </div>
+        </>
+      )}
+
+      <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Supprimer ce compte ?"
+        description={
+          deleteTarget
+            ? `Le compte de ${displayName(deleteTarget)} sera supprimé définitivement. Cette action est irréversible.`
+            : undefined
+        }
+        confirmLabel="Supprimer le compte"
+        destructive
+        onConfirm={async () => {
+          if (deleteTarget) await actions.removeAccount(deleteTarget)
+        }}
+      />
+    </div>
+  )
 }

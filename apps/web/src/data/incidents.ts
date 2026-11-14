@@ -21,6 +21,15 @@ export type Incident = {
   commune: string
   village: string
   reclamation: boolean
+  /** Name of the claimant when `reclamation` is true. */
+  reclamationName: string | null
+  /** Person who filed the claim (the claim form's "Déposée par"). */
+  reclamationBy: string | null
+  description: string | null
+  /** Legacy text summary of the materials, e.g. "Câble x2; Fusible MT x1". */
+  equipmentUsed: string
+  /** True when the incident was closed with "Aucun matériel utilisé". */
+  noMaterialUsed: boolean
   createdBy: string | null
   agentName: string | null
   latitude: number | null
@@ -63,6 +72,11 @@ type IncidentRow = {
   commune_id: string | null
   village: string | null
   reclamation: boolean | null
+  reclamation_name: string | null
+  reclamation_by: string | null
+  description: string | null
+  equipment_used: string | null
+  no_material_used: boolean | null
   created_by: string | null
   latitude: number | null
   longitude: number | null
@@ -70,7 +84,7 @@ type IncidentRow = {
 }
 
 const INCIDENT_COLUMNS =
-  "id, type, date, created_at, closed_at, status, incident_type, depart_hta, commune_id, village, reclamation, created_by, latitude, longitude, communes(name)"
+  "id, type, date, created_at, closed_at, status, incident_type, depart_hta, commune_id, village, reclamation, reclamation_name, reclamation_by, description, equipment_used, no_material_used, created_by, latitude, longitude, communes(name)"
 
 async function fetchAgentNames(): Promise<Map<string, string>> {
   const { data, error } = await supabase.rpc("get_supervision_profiles")
@@ -106,6 +120,11 @@ export async function fetchIncidents(filters: IncidentFilters = {}): Promise<Inc
       commune: cleanLabel(commune?.name) || "Commune inconnue",
       village: cleanLabel(row.village),
       reclamation: row.reclamation === true,
+      reclamationName: cleanLabel(row.reclamation_name) || null,
+      reclamationBy: cleanLabel(row.reclamation_by) || null,
+      description: row.description?.trim() || null,
+      equipmentUsed: row.equipment_used?.trim() ?? "",
+      noMaterialUsed: row.no_material_used === true,
       createdBy: row.created_by,
       agentName: row.created_by ? names.get(row.created_by) ?? null : null,
       latitude: row.latitude,

@@ -78,14 +78,15 @@ type DepartRow = {
   depart: string | null
   aerial_km: number | string | null
   underground_km: number | string | null
-  aerial_geometry: unknown
-  underground_geometry: unknown
+  aerial_geometry?: unknown
+  underground_geometry?: unknown
   depart_hta_options: { name: string | null } | { name: string | null }[] | null
 }
 
 const POSTE_COLUMNS = "id, name, longitude, latitude"
 const DEPART_COLUMNS =
   "id, poste_source, depart, aerial_km, underground_km, aerial_geometry, underground_geometry, depart_hta_options(name)"
+const DEPART_SUMMARY_COLUMNS = "id, poste_source, depart, aerial_km, underground_km, depart_hta_options(name)"
 
 const GC_TIME = 24 * 60 * 60 * 1000
 
@@ -146,8 +147,10 @@ async function fetchPostes(): Promise<NetworkPoste[]> {
   return postes.sort((a, b) => a.name.localeCompare(b.name, "fr"))
 }
 
-async function fetchDeparts(): Promise<NetworkDepart[]> {
-  const { data, error } = await supabase.from("network_departs").select(DEPART_COLUMNS)
+async function fetchDeparts(withGeometry: boolean): Promise<NetworkDepart[]> {
+  const { data, error } = await supabase
+    .from("network_departs")
+    .select(withGeometry ? DEPART_COLUMNS : DEPART_SUMMARY_COLUMNS)
   if (error) throw new Error(`Chargement des départs impossible : ${error.message}`)
 
   const departs = ((data ?? []) as unknown as DepartRow[]).map((row): NetworkDepart => ({
@@ -157,8 +160,8 @@ async function fetchDeparts(): Promise<NetworkDepart[]> {
     appDepart: embeddedOptionName(row),
     aerialKm: toFiniteNumber(row.aerial_km) ?? 0,
     undergroundKm: toFiniteNumber(row.underground_km) ?? 0,
-    aerial: parseMultiLine(row.aerial_geometry),
-    underground: parseMultiLine(row.underground_geometry),
+    aerial: withGeometry ? parseMultiLine(row.aerial_geometry) : null,
+    underground: withGeometry ? parseMultiLine(row.underground_geometry) : null,
   }))
 
   return departs.sort(
@@ -166,10 +169,19 @@ async function fetchDeparts(): Promise<NetworkDepart[]> {
   )
 }
 
-/** Postes and départs in parallel; RLS limits rows to admins and directors. */
-export async function fetchNetwork(): Promise<NetworkData> {
-  const [postes, departs] = await Promise.all([fetchPostes(), fetchDeparts()])
+async function loadNetwork(withGeometry: boolean): Promise<NetworkData> {
+  const [postes, departs] = await Promise.all([fetchPostes(), fetchDeparts(withGeometry)])
   return { postes, departs }
+}
+
+/** Postes and départs in parallel, with line geometry; RLS limits rows to admins and directors. */
+export async function fetchNetwork(): Promise<NetworkData> {
+  return loadNetwork(true)
+}
+
+/** Postes and départs in parallel, without line geometry (aerial and underground are null). */
+export async function fetchNetworkSummary(): Promise<NetworkData> {
+  return loadNetwork(false)
 }
 
 /** Network data, fetched the first time the layer is switched on and kept for the session. */
@@ -177,6 +189,17 @@ export function useNetwork(enabled: boolean) {
   return useQuery({
     queryKey: ["network"],
     queryFn: fetchNetwork,
+    enabled,
+    staleTime: Infinity,
+    gcTime: GC_TIME,
+  })
+}
+
+/** Network data without line geometry, for pages that only show names, km and counts. */
+export function useNetworkSummary(enabled: boolean) {
+  return useQuery({
+    queryKey: ["network", "summary"],
+    queryFn: fetchNetworkSummary,
     enabled,
     staleTime: Infinity,
     gcTime: GC_TIME,

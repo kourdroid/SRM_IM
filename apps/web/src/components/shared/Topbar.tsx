@@ -1,25 +1,39 @@
 import { Bell, Menu, Search } from "lucide-react"
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { useLocation, useNavigate } from "react-router"
 
 import { findModuleByPath } from "@/app/modules"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-import { CommandMenu } from "./CommandMenu"
 import { ThemeToggle } from "./ThemeToggle"
+
+/** The command palette is split out of the initial bundle: it loads on first use or when a search button is hovered or focused. */
+const loadCommandMenu = () => import("./CommandMenu")
+const CommandMenu = lazy(() => loadCommandMenu().then((module) => ({ default: module.CommandMenu })))
+
+function preloadCommandMenu() {
+  loadCommandMenu().catch(() => undefined)
+}
 
 /** Top bar: mobile menu button, "Section › Page" breadcrumb, search, notifications and theme toggle. */
 export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [commandOpen, setCommandOpen] = useState(false)
+  const [hasOpened, setHasOpened] = useState(false)
   const match = findModuleByPath(location.pathname)
+
+  function openCommandMenu() {
+    setHasOpened(true)
+    setCommandOpen(true)
+  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault()
+        setHasOpened(true)
         setCommandOpen((open) => !open)
       }
     }
@@ -51,7 +65,9 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
         <Button
           variant="ghost"
           className={cn("hidden gap-2 bg-muted/60 text-muted-foreground hover:bg-muted sm:inline-flex")}
-          onClick={() => setCommandOpen(true)}
+          onClick={openCommandMenu}
+          onPointerEnter={preloadCommandMenu}
+          onFocus={preloadCommandMenu}
         >
           <Search aria-hidden="true" />
           <span className="text-sm">Rechercher</span>
@@ -64,7 +80,9 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
           size="icon"
           className="sm:hidden"
           aria-label="Rechercher"
-          onClick={() => setCommandOpen(true)}
+          onClick={openCommandMenu}
+          onPointerEnter={preloadCommandMenu}
+          onFocus={preloadCommandMenu}
         >
           <Search aria-hidden="true" />
         </Button>
@@ -74,7 +92,11 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
         <ThemeToggle />
       </div>
 
-      <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />
+      {hasOpened ? (
+        <Suspense fallback={null}>
+          <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />
+        </Suspense>
+      ) : null}
     </header>
   )
 }

@@ -1,4 +1,7 @@
 import type { ApprovalStatus, ManagedUser, UserRole } from "@/data/users"
+import { normalizeSearchText } from "@/lib/text"
+
+export { normalizeSearchText } from "@/lib/text"
 
 /** French labels for the three roles. Field agents are "Agent terrain" here, not "Terrain". */
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -61,14 +64,6 @@ export function initialsOf(user: Pick<ManagedUser, "name" | "email">): string {
   }
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return (user.email?.charAt(0) || "?").toUpperCase()
-}
-
-/**
- * Normalizes text for search: lowercase, accents removed, whitespace collapsed,
- * so "Ménard" and "menard" compare equal.
- */
-export function normalizeSearchText(value: string): string {
-  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim()
 }
 
 /** True when any filter narrows the list. */

@@ -17,6 +17,7 @@ if (!kmlPath || !outPath) {
 
 const HTA_FOLDER = 'RESEAU HTA DPJ';
 const POSTES_FOLDER = 'POSTES SOURCES';
+const TOLERANCE_M = 5;
 
 // Spelling variants in the source map, folded onto the main départ.
 const DEPART_ALIASES = {
@@ -116,8 +117,43 @@ function lengthKm(line) {
   return km;
 }
 
+// Douglas-Peucker in a local metric plane; an explicit stack avoids recursion depth limits on long lines.
+function simplifyLine(line, toleranceM) {
+  if (line.length < 3) return line;
+  const [lng0, lat0] = line[0];
+  const kx = 111320 * Math.cos(lat0 * Math.PI / 180);
+  const ky = 110540;
+  const pts = line.map(([lng, lat]) => [(lng - lng0) * kx, (lat - lat0) * ky]);
+  const keep = new Uint8Array(line.length);
+  keep[0] = 1;
+  keep[line.length - 1] = 1;
+  const stack = [[0, line.length - 1]];
+  while (stack.length) {
+    const [start, end] = stack.pop();
+    const [ax, ay] = pts[start];
+    const [bx, by] = pts[end];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    let maxDist = -1;
+    let index = -1;
+    for (let i = start + 1; i < end; i += 1) {
+      const [px, py] = pts[i];
+      const dist = len === 0 ? Math.hypot(px - ax, py - ay) : Math.abs(dx * (py - ay) - dy * (px - ax)) / len;
+      if (dist > maxDist) { maxDist = dist; index = i; }
+    }
+    if (maxDist > toleranceM) {
+      keep[index] = 1;
+      stack.push([start, index], [index, end]);
+    }
+  }
+  return line.filter((_, i) => keep[i]);
+}
+
 const departs = new Map();
 let skipped = 0;
+let pointsBefore = 0;
+let pointsAfter = 0;
 for (const pm of placemarks(folderBody(HTA_FOLDER))) {
   const poste = pm.data['Poste source'] ?? '';
   const depart = pm.data['Départ'] ?? '';
@@ -132,8 +168,12 @@ for (const pm of placemarks(folderBody(HTA_FOLDER))) {
   const underground = (pm.data['Type ligne'] ?? '').toUpperCase() === 'S';
   for (const line of pm.lines) {
     if (line.length < 2) continue;
-    if (underground) { entry.underground.push(line); entry.undergroundKm += lengthKm(line); }
-    else { entry.aerial.push(line); entry.aerialKm += lengthKm(line); }
+    const km = lengthKm(line);
+    const simplified = simplifyLine(line, TOLERANCE_M);
+    pointsBefore += line.length;
+    pointsAfter += simplified.length;
+    if (underground) { entry.underground.push(simplified); entry.undergroundKm += km; }
+    else { entry.aerial.push(simplified); entry.aerialKm += km; }
   }
 }
 
@@ -162,4 +202,6 @@ const totalKm = [...departs.values()].reduce((sum, d) => sum + d.aerialKm + d.un
 console.log(`postes: ${postes.length}, départs: ${departs.size}, km: ${totalKm.toFixed(0)}, skipped placemarks: ${skipped}`);
 console.log(`linked to app départs: ${Object.keys(APP_DEPART_NAMES).length - unmatched.length}`);
 if (unmatched.length) console.log(`mapping keys missing from the map: ${unmatched.join(', ')}`);
+const keptPct = pointsBefore ? (pointsAfter / pointsBefore * 100).toFixed(1) : '0.0';
+console.log(`points: ${pointsBefore} -> ${pointsAfter} (${keptPct}% kept)`);
 console.log(`SQL: ${outPath} (${(fs.statSync(outPath).size / 1024).toFixed(0)} KB)`);

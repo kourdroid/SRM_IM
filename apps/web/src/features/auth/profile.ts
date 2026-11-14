@@ -13,7 +13,8 @@ type ProfileRow = {
   approval_status: string | null
 }
 
-export type ProfileResult = { ok: true; user: CurrentUser } | { ok: false; message: string }
+/** `transient` is true when the request failed (network), false when the profile itself refuses access. */
+export type ProfileResult = { ok: true; user: CurrentUser } | { ok: false; message: string; transient: boolean }
 
 /** Loads the user_profiles row and allows only approved admins and directors. */
 export async function loadAuthorizedUser(userId: string): Promise<ProfileResult> {
@@ -24,12 +25,12 @@ export async function loadAuthorizedUser(userId: string): Promise<ProfileResult>
     .maybeSingle()
 
   if (error) {
-    return { ok: false, message: PROFILE_ERROR_MESSAGE }
+    return { ok: false, message: PROFILE_ERROR_MESSAGE, transient: true }
   }
 
   const row = data as ProfileRow | null
   if (!row || row.approval_status !== "approved" || !isRole(row.role)) {
-    return { ok: false, message: ACCESS_DENIED_MESSAGE }
+    return { ok: false, message: ACCESS_DENIED_MESSAGE, transient: false }
   }
 
   return {

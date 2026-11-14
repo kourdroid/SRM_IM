@@ -8,7 +8,7 @@ import { SectionCard } from "@/components/shared/SectionCard"
 import { SegmentedControl } from "@/components/shared/SegmentedControl"
 import { Button } from "@/components/ui/button"
 import { useIncidents, type Incident, type IncidentFilters } from "@/data/incidents"
-import { buildPosteIndex, useNetwork } from "@/data/network"
+import { buildPosteIndex, useNetworkSummary } from "@/data/network"
 
 import { DepartsTable } from "./components/DepartsTable"
 import { NetworkKpis } from "./components/NetworkKpis"
@@ -38,7 +38,7 @@ export function NetworkPage() {
   const [period, setPeriod] = useState<NetworkPeriodKey>("30d")
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
 
-  const networkQuery = useNetwork(true)
+  const networkQuery = useNetworkSummary(true)
   const incidentFilters = useMemo<IncidentFilters>(
     () => ({ network: "MT", from: new Date(now - NETWORK_WINDOW_DAYS * DAY_MS).toISOString() }),
     [now],

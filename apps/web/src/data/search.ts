@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { cleanLabel, useCommunes, type Commune, type IncidentStatus, type Network } from "@/data/incidents"
-import { normalizeSearchText } from "@/features/users/user-utils"
 import { supabase } from "@/lib/supabase"
+import { normalizeSearchText } from "@/lib/text"
 
 /** Incident search for the global search box: server-side text match plus client-side commune match. */
 

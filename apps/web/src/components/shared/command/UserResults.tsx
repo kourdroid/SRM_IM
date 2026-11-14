@@ -1,6 +1,7 @@
 import { CommandGroup, CommandItem } from "@/components/ui/command"
-import { displayName, initialsOf, normalizeSearchText, ROLE_LABELS } from "@/features/users/user-utils"
 import { useUsers, type ManagedUser } from "@/data/users"
+import { displayName, initialsOf, ROLE_LABELS } from "@/features/users/user-utils"
+import { normalizeSearchText } from "@/lib/text"
 
 import { CommandRow } from "./CommandRow"
 

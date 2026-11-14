@@ -35,7 +35,7 @@ import { useAuth } from "@/features/auth/auth-context"
 import { useCurrentUser } from "@/features/auth/useCurrentUser"
 import { useIsAdmin } from "@/features/auth/useIsAdmin"
 import { useDebouncedValue } from "@/features/incidents/useDebouncedValue"
-import { normalizeSearchText } from "@/features/users/user-utils"
+import { normalizeSearchText } from "@/lib/text"
 
 import { useTheme } from "./theme-context"
 

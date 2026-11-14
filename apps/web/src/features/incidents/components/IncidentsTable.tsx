@@ -274,14 +274,18 @@ export function IncidentsTable({
           <caption className="sr-only">
             Liste des incidents, {formatNumber(total)} résultat{total > 1 ? "s" : ""}
           </caption>
-          <TableHeader className="sticky top-0 z-10 bg-card [&_tr]:border-foreground/[0.04]">
+          <TableHeader className="sticky top-0 z-10 bg-card">
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id} className="hover:bg-transparent">
                 {group.headers.map((header) => (
                   <TableHead
                     key={header.id}
                     aria-sort={header.column.getCanSort() ? ariaSortValue(header.column.getIsSorted()) : undefined}
-                    className={cn("h-11 text-sm font-medium text-muted-foreground", header.id === "select" && "w-10")}
+                    className={cn(
+                      "text-sm",
+                      header.id === "select" && "w-10",
+                      header.id === "actions" && "w-px text-right",
+                    )}
                   >
                     {header.isPlaceholder ? null : <FlexRender header={header} />}
                   </TableHead>
@@ -301,12 +305,18 @@ export function IncidentsTable({
                   onClick={(event) => openFromRowClick(event, incident.id)}
                   onKeyDown={(event) => openFromKeyboard(event, incident.id)}
                   className={cn(
-                    "cursor-pointer border-foreground/[0.04] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
-                    selected ? "bg-lime/15 hover:bg-lime/20" : "hover:bg-muted/60",
+                    "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
+                    selected && "bg-lime/15 hover:bg-lime/20",
                   )}
                 >
                   {row.getAllCells().map((cell) => (
-                    <TableCell key={cell.id} className={cn(cell.column.id === "select" && "w-10")}>
+                    <TableCell
+                      key={cell.id}
+                      className={cn(
+                        cell.column.id === "select" && "w-10",
+                        cell.column.id === "actions" && "w-px text-right",
+                      )}
+                    >
                       <FlexRender cell={cell} />
                     </TableCell>
                   ))}

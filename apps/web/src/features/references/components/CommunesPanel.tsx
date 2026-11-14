@@ -12,6 +12,7 @@ import {
 } from "@/data/references"
 import { formatNumber } from "@/lib/format"
 import {
+  countLabel,
   errorMessage,
   filterByQuery,
   incidentsLabel,
@@ -28,12 +29,7 @@ const COMMUNE_NAME_MAX = 120
 
 const COLUMNS: ReferenceColumn<AdminCommune>[] = [
   { id: "name", header: "Commune", cell: (commune) => <span className="font-medium">{commune.name}</span> },
-  {
-    id: "incidents",
-    header: "Incidents",
-    className: "text-right",
-    cell: (commune) => <span className="tabular-nums">{formatNumber(commune.incidentCount)}</span>,
-  },
+  { id: "incidents", header: "Incidents", numeric: true, cell: (commune) => formatNumber(commune.incidentCount) },
 ]
 
 /** Communes offered on incidents. A commune used by incidents cannot be deleted, only renamed. */
@@ -85,12 +81,15 @@ export function CommunesPanel() {
         query={query}
         onQueryChange={setQuery}
         searchLabel="Rechercher une commune"
+        summary={countLabel(communes.length, "commune", "communes")}
         addLabel="Ajouter une commune"
         onAdd={() => setForm((previous) => nextFormState(previous, null))}
         onEdit={(commune) => setForm((previous) => nextFormState(previous, commune))}
         onDelete={setPendingDelete}
         deleteBlockedReason={(commune) =>
-          commune.incidentCount > 0 ? `Utilisée par ${incidentsLabel(commune.incidentCount)}` : null
+          commune.incidentCount > 0
+            ? `Utilisée par ${incidentsLabel(commune.incidentCount)} — renommez-la plutôt`
+            : null
         }
         busy={busy}
         emptyIcon={MapPinned}

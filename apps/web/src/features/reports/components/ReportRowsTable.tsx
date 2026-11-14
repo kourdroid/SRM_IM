@@ -7,13 +7,19 @@ import { SectionCard } from "@/components/shared/SectionCard"
 import { StatusPill } from "@/components/shared/StatusPill"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { REPORT_PAGE_SIZE, type ReportRow } from "@/data/reports"
 import { formatDateTime, formatNumber } from "@/lib/format"
 
 const SKELETON_ROWS = 5
 
-/** Paginated preview of the incident rows behind the report (the export contains every row). */
+/** Header cells stay visible while the preview scrolls vertically. */
+const STICKY_HEAD = "sticky top-0 z-10 bg-card"
+
+/**
+ * Paginated preview of the incident rows behind the report (the export contains every row).
+ * A plain table sits in a scroll container so the header can stick; the base Table wrapper would block that.
+ */
 export function ReportRowsTable({
   rows,
   total,
@@ -62,18 +68,34 @@ export function ReportRowsTable({
     body = <EmptyState title="Aucun incident sur cette période" description="Élargissez la période ou retirez des filtres." />
   } else {
     body = (
-      <div aria-busy={isFetching}>
-        <Table className="min-w-[46rem]">
+      <div aria-busy={isFetching} className="max-h-[28rem] overflow-auto rounded-lg">
+        <table className="w-full min-w-[46rem] caption-bottom text-sm">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead scope="col">Date</TableHead>
-              <TableHead scope="col">Réseau</TableHead>
-              <TableHead scope="col">Type</TableHead>
-              <TableHead scope="col">Commune</TableHead>
-              <TableHead scope="col">Village</TableHead>
-              <TableHead scope="col">Agent</TableHead>
-              <TableHead scope="col">Statut</TableHead>
-              <TableHead scope="col">Réclamation</TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Date
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Réseau
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Type
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Commune
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Village
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Agent
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Statut
+              </TableHead>
+              <TableHead scope="col" className={STICKY_HEAD}>
+                Réclamation
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -96,7 +118,7 @@ export function ReportRowsTable({
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+        </table>
       </div>
     )
   }
@@ -116,7 +138,7 @@ export function ReportRowsTable({
       {body}
 
       {!isPending && !isError && total > 0 ? (
-        <nav aria-label="Pagination de l'aperçu" className="flex items-center justify-between gap-3">
+        <nav aria-label="Pagination de l'aperçu" className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm tabular-nums text-muted-foreground">
             Page {formatNumber(page + 1)} sur {formatNumber(pageCount)}
           </p>

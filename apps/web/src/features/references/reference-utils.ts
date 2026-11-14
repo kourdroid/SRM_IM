@@ -52,6 +52,21 @@ export function savedLabel(count: number): string {
   return `${formatNumber(count)} ${count > 1 ? "saisies" : "saisie"}`
 }
 
+/** "1 commune" / "28 communes". */
+export function countLabel(count: number, singular: string, plural: string): string {
+  return `${formatNumber(count)} ${count === 1 ? singular : plural}`
+}
+
+/** "26 départs · 25 actifs", the muted summary shown next to a list's search. */
+export function activeSummary<T>(
+  items: readonly T[],
+  isActive: (item: T) => boolean,
+  nouns: { singular: string; plural: string },
+): string {
+  const active = items.filter(isActive).length
+  return `${countLabel(items.length, nouns.singular, nouns.plural)} · ${countLabel(active, "actif", "actifs")}`
+}
+
 /** Returns null when the name is usable, otherwise a message for the user. */
 export function validateReferenceName(value: string, maxLength: number): string | null {
   if (value.length < NAME_MIN_LENGTH) return `Saisissez au moins ${NAME_MIN_LENGTH} caractères.`

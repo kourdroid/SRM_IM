@@ -56,10 +56,10 @@ export function NotificationsPage() {
   if (inbox.isPending) {
     body = (
       <Card className="gap-0 py-2" aria-busy="true">
-        <ul className="flex flex-col gap-1 px-2">
+        <ul className="flex flex-col gap-1 px-1">
           {Array.from({ length: SKELETON_ROWS }, (_, index) => (
-            <li key={index} className="flex items-start gap-3 px-2 py-3">
-              <Skeleton className="mt-2 size-2 rounded-full" />
+            <li key={index} className="flex min-h-11 items-start gap-3 px-5 py-3">
+              <Skeleton className="mt-1.5 size-2 rounded-full" />
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <Skeleton className="h-4 w-2/3" />
                 <Skeleton className="h-3 w-1/2" />
@@ -95,7 +95,7 @@ export function NotificationsPage() {
   } else {
     body = (
       <Card className="gap-0 py-2">
-        <ul aria-label="Notifications" className="flex flex-col gap-1 px-2">
+        <ul aria-label="Notifications" className="flex flex-col gap-1 px-1">
           {items.map((notification) => (
             <NotificationItem
               key={notification.id}
@@ -107,7 +107,7 @@ export function NotificationsPage() {
           ))}
         </ul>
         {hasMore ? (
-          <div className="flex justify-center px-4 pt-3">
+          <div className="flex justify-center px-5 pt-3">
             <Button variant="ghost" onClick={() => setLimit((current) => current + NOTIFICATION_PAGE_SIZE)}>
               Afficher plus
             </Button>

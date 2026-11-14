@@ -2,7 +2,6 @@ import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
-import { NetworkBadge } from "@/components/shared/NetworkBadge"
 import { SegmentedControl, type SegmentedOption } from "@/components/shared/SegmentedControl"
 import {
   useCreateIncidentType,
@@ -15,6 +14,7 @@ import {
 } from "@/data/references"
 import { formatNumber } from "@/lib/format"
 import {
+  activeSummary,
   errorMessage,
   filterByQuery,
   incidentsLabel,
@@ -43,15 +43,10 @@ const NETWORK_FILTERS: SegmentedOption<NetworkFilter>[] = [
 ]
 const TYPE_NAME_MAX = 160
 
+/** The network is not a column: rows are already grouped under their BT or MT heading. */
 const COLUMNS: ReferenceColumn<IncidentTypeOption>[] = [
-  { id: "network", header: "Réseau", cell: (type) => <NetworkBadge network={type.networkType} /> },
   { id: "name", header: "Type d'incident", cell: (type) => <span className="font-medium">{type.name}</span> },
-  {
-    id: "incidents",
-    header: "Incidents",
-    className: "text-right",
-    cell: (type) => <span className="tabular-nums">{formatNumber(type.incidentCount)}</span>,
-  },
+  { id: "incidents", header: "Incidents", numeric: true, cell: (type) => formatNumber(type.incidentCount) },
 ]
 
 /**
@@ -158,13 +153,14 @@ export function IncidentTypesPanel() {
         query={query}
         onQueryChange={setQuery}
         searchLabel="Rechercher un type d'incident"
+        summary={activeSummary(types, (type) => type.active, { singular: "type", plural: "types" })}
         filters={
           <SegmentedControl<NetworkFilter>
             value={network}
             onValueChange={setNetwork}
             options={NETWORK_FILTERS}
             ariaLabel="Filtrer par réseau"
-            className="bg-card shadow-soft"
+            className="h-9 bg-card shadow-soft"
           />
         }
         addLabel="Ajouter un type"
@@ -176,7 +172,7 @@ export function IncidentTypesPanel() {
         onEdit={(type) => setForm((previous) => nextFormState(previous, type))}
         onDelete={setPendingDelete}
         deleteBlockedReason={(type) =>
-          type.incidentCount > 0 ? `Utilisé par ${incidentsLabel(type.incidentCount)}. Désactivez-le plutôt.` : null
+          type.incidentCount > 0 ? `Utilisé par ${incidentsLabel(type.incidentCount)} — désactivez-le plutôt` : null
         }
         busy={busy}
         emptyTitle="Aucun type d'incident"

@@ -44,7 +44,6 @@ export function ReportFilterCard({
   rangeError,
   onChange,
   onReset,
-  className,
 }: {
   form: ReportFormState
   /** Latest selectable day (YYYY-MM-DD), used as the maximum of both date fields. */
@@ -54,7 +53,6 @@ export function ReportFilterCard({
   rangeError: string | null
   onChange: (patch: Partial<ReportFormState>) => void
   onReset: () => void
-  className?: string
 }) {
   function applyPreset(preset: PresetKey) {
     onChange({ preset, ...presetRange(preset, today) })
@@ -64,10 +62,9 @@ export function ReportFilterCard({
     <SectionCard
       title="Période et filtres"
       description="Les indicateurs, répartitions et aperçus suivent ces filtres."
-      className={className}
       contentClassName="gap-5"
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <FilterField id="report-preset" label="Période rapide">
           <Select value={form.preset ?? ""} onValueChange={(value) => applyPreset(value as PresetKey)}>
             <SelectTrigger id="report-preset" className="h-9 w-full border-0 bg-input">
@@ -90,7 +87,7 @@ export function ReportFilterCard({
             value={form.startDate}
             max={form.endDate || today}
             onChange={(event) => onChange({ startDate: event.target.value, preset: null })}
-            className="bg-input"
+            className="border-0 bg-input"
             aria-invalid={rangeError !== null}
           />
         </FilterField>
@@ -103,7 +100,7 @@ export function ReportFilterCard({
             min={form.startDate || undefined}
             max={today}
             onChange={(event) => onChange({ endDate: event.target.value, preset: null })}
-            className="bg-input"
+            className="border-0 bg-input"
             aria-invalid={rangeError !== null}
           />
         </FilterField>

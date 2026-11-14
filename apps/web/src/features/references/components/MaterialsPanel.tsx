@@ -13,6 +13,7 @@ import {
 } from "@/data/references"
 import { formatNumber } from "@/lib/format"
 import {
+  activeSummary,
   errorMessage,
   filterByQuery,
   nextFormState,
@@ -31,12 +32,7 @@ const MATERIAL_NAME_MAX = 160
 
 const COLUMNS: ReferenceColumn<MaterialOption>[] = [
   { id: "name", header: "Matériel", cell: (material) => <span className="font-medium">{material.name}</span> },
-  {
-    id: "usage",
-    header: "Saisies",
-    className: "text-right",
-    cell: (material) => <span className="tabular-nums">{formatNumber(material.usageCount)}</span>,
-  },
+  { id: "usage", header: "Saisies", numeric: true, cell: (material) => formatNumber(material.usageCount) },
 ]
 
 /** Material catalogue offered when closing an incident. A material already used on incidents cannot be deleted. */
@@ -110,6 +106,7 @@ export function MaterialsPanel() {
         query={query}
         onQueryChange={setQuery}
         searchLabel="Rechercher un matériel"
+        summary={activeSummary(materials, (material) => material.active, { singular: "matériel", plural: "matériels" })}
         addLabel="Ajouter un matériel"
         onAdd={() => setForm((previous) => nextFormState(previous, null))}
         isActive={(material) => material.active}
@@ -119,7 +116,7 @@ export function MaterialsPanel() {
         onEdit={(material) => setForm((previous) => nextFormState(previous, material))}
         onDelete={setPendingDelete}
         deleteBlockedReason={(material) =>
-          material.usageCount > 0 ? `Utilisé dans ${savedLabel(material.usageCount)}. Désactivez-le plutôt.` : null
+          material.usageCount > 0 ? `Utilisé dans ${savedLabel(material.usageCount)} — désactivez-le plutôt` : null
         }
         busy={busy}
         emptyIcon={Wrench}

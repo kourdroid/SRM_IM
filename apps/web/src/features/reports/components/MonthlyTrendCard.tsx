@@ -2,12 +2,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import { EmptyState } from "@/components/shared/EmptyState"
 import { SectionCard } from "@/components/shared/SectionCard"
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { ReportPoint } from "@/data/reports"
 import { APP_LOCALE, formatNumber } from "@/lib/format"
 
@@ -27,8 +22,8 @@ function monthDate(label: string): Date | null {
 
 type ChartRow = { month: string; fullMonth: string; total: number }
 
-/** Incidents per month over the filtered period. */
-export function MonthlyCard({ points, className }: { points: ReportPoint[]; className?: string }) {
+/** Incidents per month, used for ranges longer than the daily chart allows. */
+export function MonthlyTrendCard({ points, className }: { points: ReportPoint[]; className?: string }) {
   const data: ChartRow[] = points.map((point) => {
     const date = monthDate(point.label)
     return {
@@ -51,10 +46,10 @@ export function MonthlyCard({ points, className }: { points: ReportPoint[]; clas
       ) : (
         <div role="img" aria-label={`Incidents par mois : ${formatNumber(total)} au total sur ${points.length} mois.`}>
           <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full">
-            <BarChart data={data} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+            <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} minTickGap={12} />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
               <ChartTooltip
                 content={
                   <ChartTooltipContent

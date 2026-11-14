@@ -106,9 +106,16 @@ export type ReportExportResult = { downloadUrl: string; rowCount: number }
 /** Rows per page in the preview table. */
 export const REPORT_PAGE_SIZE = 25
 
+/** Longest range, in days, drawn with one bar per day. Longer ranges are drawn by month. */
+export const DAILY_CHART_MAX_DAYS = 62
+
+/** Incident count for one calendar day (YYYY-MM-DD, Africa/Casablanca), split by network. */
+export type ReportDailyPoint = { day: string; bt: number; mt: number }
+
 const DAY_MS = 86_400_000
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const EXPORT_NAME_PREFIX = "rapport-incidents"
+const DAILY_PAGE_SIZE = 1000
 
 const zonedFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: APP_TIME_ZONE,
@@ -119,6 +126,14 @@ const zonedFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   second: "2-digit",
   hourCycle: "h23",
+})
+
+/** en-CA formats as YYYY-MM-DD, which is the day key used across the reports. */
+const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
 })
 
 /** Parses YYYY-MM-DD as a UTC instant, rejecting impossible calendar dates. */
@@ -157,6 +172,14 @@ export function reportDateRange(startDate: string, endDate: string): { start: st
   const end = parseDay(endDate)
   if (start === null || end === null || end < start) return null
   return { start: zonedMidnight(start), end: zonedMidnight(end + DAY_MS) }
+}
+
+/** Number of calendar days in the inclusive range, or null when the range is invalid. */
+export function reportDayCount(startDate: string, endDate: string): number | null {
+  const start = parseDay(startDate)
+  const end = parseDay(endDate)
+  if (start === null || end === null || end < start) return null
+  return Math.round((end - start) / DAY_MS) + 1
 }
 
 /** RPC parameters for a filter set, or null when the dates are invalid (queries stay disabled). */
@@ -221,6 +244,56 @@ export function useReportRows(params: ReportRpcParams | null, page: number) {
       return Array.isArray(data) ? data.map(parseRow) : []
     },
   })
+}
+
+/**
+ * Incidents per calendar day for the daily chart. Counts the same rows as the RPCs (created_at inside the range,
+ * archived rows excluded, same filters), so the bars add up to the KPI total. Pages through the table because
+ * PostgREST caps each response. Only used for ranges up to DAILY_CHART_MAX_DAYS.
+ */
+export function useReportDaily(params: ReportRpcParams | null) {
+  return useQuery({
+    queryKey: ["reports", "daily", params],
+    enabled: params !== null,
+    queryFn: () => fetchDailyCounts(requireParams(params)),
+  })
+}
+
+async function fetchDailyCounts(params: ReportRpcParams): Promise<ReportDailyPoint[]> {
+  const counts = new Map<string, ReportDailyPoint>()
+
+  for (let offset = 0; ; offset += DAILY_PAGE_SIZE) {
+    let query = supabase
+      .from("incidents")
+      .select("id, type, created_at")
+      .is("archived_at", null)
+      .gte("created_at", params.p_start_date)
+      .lt("created_at", params.p_end_date)
+    if (params.p_commune_id) query = query.eq("commune_id", params.p_commune_id)
+    if (params.p_agent_id) query = query.eq("created_by", params.p_agent_id)
+    if (params.p_type) query = query.eq("type", params.p_type)
+    if (params.p_status) query = query.eq("status", params.p_status)
+    if (params.p_reclamation !== null) query = query.eq("reclamation", params.p_reclamation)
+
+    const { data, error } = await query.order("id").range(offset, offset + DAILY_PAGE_SIZE - 1)
+    throwIfError(error, "Les incidents par jour n'ont pas pu être chargés.")
+
+    const rows: unknown[] = Array.isArray(data) ? data : []
+    for (const value of rows) {
+      const record = asRecord(value)
+      const instant = Date.parse(asText(record.created_at))
+      if (!Number.isFinite(instant)) continue
+      const day = dayKeyFormatter.format(new Date(instant))
+      const point = counts.get(day) ?? { day, bt: 0, mt: 0 }
+      if (asNetwork(record.type) === "BT") point.bt += 1
+      else point.mt += 1
+      counts.set(day, point)
+    }
+
+    if (rows.length < DAILY_PAGE_SIZE) break
+  }
+
+  return [...counts.values()].sort((a, b) => a.day.localeCompare(b.day))
 }
 
 /** Active agents (admins and directors see every profile through this RPC), sorted by name. */

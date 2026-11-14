@@ -61,17 +61,17 @@ export function UsersTable({
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-hidden rounded-xl bg-card shadow-soft">
-        <Table className="min-w-[760px] text-sm">
+        <Table className="min-w-[520px] md:min-w-[760px]">
           <caption className="sr-only">
             Liste des utilisateurs, {formatNumber(rows.length)} résultat{rows.length > 1 ? "s" : ""}
           </caption>
-          <TableHeader className="[&_tr]:border-foreground/[0.04]">
+          <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="h-11 text-muted-foreground">Nom</TableHead>
-              <TableHead className="h-11 text-muted-foreground">Adresse e-mail</TableHead>
-              <TableHead className="h-11 text-muted-foreground">Rôle</TableHead>
-              <TableHead className="h-11 text-muted-foreground">Statut</TableHead>
-              <TableHead className="h-11 w-14 text-right">
+              <TableHead>Nom</TableHead>
+              <TableHead className="hidden md:table-cell">Adresse e-mail</TableHead>
+              <TableHead>Rôle</TableHead>
+              <TableHead>Statut</TableHead>
+              <TableHead className="w-px text-right">
                 <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
@@ -81,14 +81,19 @@ export function UsersTable({
               const self = actions.isSelf(user)
 
               return (
-                <TableRow key={user.id} className="border-foreground/[0.04] hover:bg-muted/60">
+                <TableRow key={user.id}>
                   <TableCell>
                     <div className="flex min-w-0 items-center gap-3">
                       <UserAvatar user={user} />
-                      <span className="truncate font-medium">{displayName(user)}</span>
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate font-medium">{displayName(user)}</span>
+                        {user.email ? (
+                          <span className="truncate text-xs text-muted-foreground md:hidden">{user.email}</span>
+                        ) : null}
+                      </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="hidden text-muted-foreground md:table-cell">
                     {user.email ?? "—"}
                   </TableCell>
                   <TableCell>
@@ -97,7 +102,7 @@ export function UsersTable({
                   <TableCell>
                     <ApprovalPill status={user.approvalStatus} />
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="w-px text-right">
                     {self ? (
                       <Badge variant="secondary">Vous</Badge>
                     ) : (

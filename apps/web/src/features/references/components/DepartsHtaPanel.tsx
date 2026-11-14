@@ -11,6 +11,7 @@ import {
 } from "@/data/references"
 import { formatNumber } from "@/lib/format"
 import {
+  activeSummary,
   errorMessage,
   filterByQuery,
   incidentsLabel,
@@ -29,12 +30,7 @@ const DEPART_NAME_MAX = 160
 
 const COLUMNS: ReferenceColumn<DepartHtaOption>[] = [
   { id: "name", header: "Départ HTA", cell: (depart) => <span className="font-medium">{depart.name}</span> },
-  {
-    id: "incidents",
-    header: "Incidents",
-    className: "text-right",
-    cell: (depart) => <span className="tabular-nums">{formatNumber(depart.incidentCount)}</span>,
-  },
+  { id: "incidents", header: "Incidents", numeric: true, cell: (depart) => formatNumber(depart.incidentCount) },
 ]
 
 /**
@@ -100,6 +96,7 @@ export function DepartsHtaPanel() {
         query={query}
         onQueryChange={setQuery}
         searchLabel="Rechercher un départ HTA"
+        summary={activeSummary(departs, (depart) => depart.active, { singular: "départ", plural: "départs" })}
         addLabel="Ajouter un départ"
         onAdd={() => setForm((previous) => nextFormState(previous, null))}
         isActive={(depart) => depart.active}

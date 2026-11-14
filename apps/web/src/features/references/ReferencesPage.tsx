@@ -29,13 +29,13 @@ export function ReferencesPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="communes">
+        <TabsContent value="communes" className="max-w-5xl">
           <CommunesPanel />
         </TabsContent>
-        <TabsContent value="types">
+        <TabsContent value="types" className="max-w-5xl">
           <IncidentTypesPanel />
         </TabsContent>
-        <TabsContent value="departs">
+        <TabsContent value="departs" className="max-w-5xl">
           <DepartsHtaPanel />
         </TabsContent>
       </Tabs>

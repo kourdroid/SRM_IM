@@ -39,7 +39,7 @@ export function MobileAppCard() {
   } else {
     const release = query.data
     body = (
-      <dl className="flex flex-col gap-3 text-sm tabular-nums">
+      <dl className="flex flex-col text-sm tabular-nums">
         <SettingsRow label="Dernière version">{release.latestVersion || "—"}</SettingsRow>
         <SettingsRow label="Version minimale acceptée">{release.minSupportedVersion || "—"}</SettingsRow>
         <SettingsRow label="Fiche Android">

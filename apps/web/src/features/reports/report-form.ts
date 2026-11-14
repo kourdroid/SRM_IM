@@ -1,6 +1,6 @@
 import type { IncidentStatus, Network } from "@/data/incidents"
 import type { ReportExportRecord, ReportFilters } from "@/data/reports"
-import { APP_TIME_ZONE } from "@/lib/format"
+import { APP_LOCALE, APP_TIME_ZONE, formatNumber } from "@/lib/format"
 
 /** Value of every "all" option in the filter selects. */
 export const ALL = "all"
@@ -99,6 +99,26 @@ export function formFromExport(record: ReportExportRecord): ReportFormState {
     status: filters.status ?? ALL,
     reclamation: filters.reclamation === null ? ALL : filters.reclamation ? "yes" : "no",
   }
+}
+
+const periodShortFormatter = new Intl.DateTimeFormat(APP_LOCALE, { day: "numeric", month: "short", timeZone: "UTC" })
+const periodLongFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+})
+
+/** Page summary, e.g. "86 incidents du 16 oct. au 14 nov. 2026". The start drops the year when both days share it. */
+export function formatPeriodSummary(startDate: string, endDate: string, total: number): string {
+  const count = `${formatNumber(total)} incident${total > 1 ? "s" : ""}`
+  const start = Date.parse(`${startDate}T00:00:00Z`)
+  const end = Date.parse(`${endDate}T00:00:00Z`)
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return count
+
+  const sameYear = new Date(start).getUTCFullYear() === new Date(end).getUTCFullYear()
+  const from = sameYear ? periodShortFormatter.format(start) : periodLongFormatter.format(start)
+  return `${count} du ${from} au ${periodLongFormatter.format(end)}`
 }
 
 /** Message shown under the dates when the range cannot be queried, or null when it is usable. */

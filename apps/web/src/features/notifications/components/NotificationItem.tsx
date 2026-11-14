@@ -30,14 +30,13 @@ export function NotificationItem({
   return (
     <li
       className={cn(
-        "flex items-start gap-3 rounded-xl px-3 py-3 transition-colors sm:px-4",
+        "flex min-h-11 items-start gap-3 rounded-xl px-5 py-3 transition-colors",
         unread ? "bg-primary/5" : "hover:bg-muted/60",
       )}
     >
-      <span
-        aria-hidden="true"
-        className={cn("mt-2 size-2 shrink-0 rounded-full", unread ? "bg-primary" : "bg-transparent")}
-      />
+      <span aria-hidden="true" className="flex h-5 shrink-0 items-center">
+        <span className={cn("size-2 rounded-full", unread ? "bg-primary" : "bg-transparent")} />
+      </span>
 
       <Link
         to={`/incidents?incident=${encodeURIComponent(notification.incidentId)}`}

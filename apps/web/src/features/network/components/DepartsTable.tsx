@@ -45,9 +45,9 @@ function SortableHead({ label, sortKey, sort, onSort, align = "left", className 
 
 function PosteGroupRow({ group }: { group: PosteGroup }) {
   return (
-    <TableRow className="bg-muted/50 hover:bg-muted/50">
-      <TableCell colSpan={COLUMN_COUNT} className="pl-(--card-spacing) pr-(--card-spacing) py-2.5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <TableRow className="bg-muted/40 hover:bg-muted/40">
+      <TableCell colSpan={COLUMN_COUNT} className="py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tracking-wide text-muted-foreground uppercase">
           <span className="flex items-center gap-2 font-medium">
             <span
               className="size-2.5 shrink-0 rounded-full"
@@ -56,7 +56,7 @@ function PosteGroupRow({ group }: { group: PosteGroup }) {
             />
             {group.poste}
           </span>
-          <span className="text-xs text-muted-foreground tabular-nums">
+          <span className="tabular-nums">
             {group.rows.length === 0
               ? "Aucun départ enregistré"
               : `${pluralize(group.rows.length, "départ", "départs")} · ${formatKm(group.aerialKm)} km aérien · ${formatKm(group.undergroundKm)} km souterrain · ${formatNumber(group.incidentCount)} incident${group.incidentCount > 1 ? "s" : ""} MT`}
@@ -69,8 +69,8 @@ function PosteGroupRow({ group }: { group: PosteGroup }) {
 
 function DepartRowView({ row, onViewOnMap }: { row: DepartRow; onViewOnMap: () => void }) {
   return (
-    <TableRow>
-      <TableCell className="pl-(--card-spacing)">
+    <TableRow className="group/row">
+      <TableCell>
         <div className="flex flex-col gap-0.5">
           <span className="font-medium">{row.depart}</span>
           {row.linked ? null : <span className="text-xs text-muted-foreground">Non relié à l&apos;application</span>}
@@ -88,9 +88,15 @@ function DepartRowView({ row, onViewOnMap }: { row: DepartRow; onViewOnMap: () =
       <TableCell className="tabular-nums">
         {row.lastIncident ? formatDateTime(row.lastIncident) : <span className="text-muted-foreground">—</span>}
       </TableCell>
-      <TableCell className="pr-(--card-spacing) text-right">
-        <Button variant="ghost" size="sm" onClick={onViewOnMap} aria-label={`Voir le départ ${row.depart} sur la carte`}>
-          <MapIcon aria-hidden="true" />
+      <TableCell className="w-px text-right">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onViewOnMap}
+          aria-label={`Voir le départ ${row.depart} sur la carte`}
+          className="h-7 px-2 text-muted-foreground transition-colors group-focus-within/row:text-foreground group-hover/row:text-foreground"
+        >
+          <MapIcon aria-hidden="true" className="size-3.5" />
           Voir sur la carte
         </Button>
       </TableCell>
@@ -115,14 +121,14 @@ export function DepartsTable({
 }) {
   return (
     <Table aria-label="Départs par poste source">
-      <TableHeader className="[&_tr]:border-b-0">
-        <TableRow className="border-b-0 hover:bg-transparent">
-          <SortableHead label="Départ" sortKey="depart" sort={sort} onSort={onSort} className="pl-(--card-spacing)" />
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <SortableHead label="Départ" sortKey="depart" sort={sort} onSort={onSort} />
           <SortableHead label="Aérien (km)" sortKey="aerial" sort={sort} onSort={onSort} align="right" />
           <SortableHead label="Souterrain (km)" sortKey="underground" sort={sort} onSort={onSort} align="right" />
           <SortableHead label="Incidents MT" sortKey="incidents" sort={sort} onSort={onSort} align="right" />
           <SortableHead label="Dernier incident" sortKey="last" sort={sort} onSort={onSort} />
-          <TableHead className="pr-(--card-spacing)">
+          <TableHead className="w-px">
             <span className="sr-only">Actions</span>
           </TableHead>
         </TableRow>
@@ -142,7 +148,7 @@ function TableRowGroup({ group, onViewOnMap }: { group: PosteGroup; onViewOnMap:
       <PosteGroupRow group={group} />
       {group.rows.length === 0 ? (
         <TableRow>
-          <TableCell colSpan={COLUMN_COUNT} className="pl-(--card-spacing) pr-(--card-spacing) text-muted-foreground">
+          <TableCell colSpan={COLUMN_COUNT} className="text-muted-foreground">
             Aucun départ à afficher pour ce poste.
           </TableCell>
         </TableRow>

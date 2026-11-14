@@ -1,11 +1,18 @@
 import { ChartNoAxesColumn, TriangleExclamationPoint } from "lucide-react"
 import { useMemo, type ReactNode } from "react"
+import { toast } from "sonner"
 
 import { EmptyState } from "@/components/shared/EmptyState"
 import { SectionCard } from "@/components/shared/SectionCard"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useMaterialOptions, useMaterialUsage, type MaterialOption, type MaterialUsage } from "@/data/references"
+import {
+  useCreateMaterial,
+  useMaterialOptions,
+  useMaterialUsage,
+  type MaterialOption,
+  type MaterialUsage,
+} from "@/data/references"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
@@ -20,11 +27,12 @@ const TOP_LIMIT = 10
 
 /**
  * Most typed material names on incidents. Names that do not match the catalogue (after case and accent
- * normalization) are flagged "Hors catalogue", so spelling variants stand out and can be added.
+ * normalization) are flagged "Hors catalogue", so spelling variants stand out and can be added in one click.
  */
 export function MaterialUsageCard() {
   const usageQuery = useMaterialUsage()
   const catalogQuery = useMaterialOptions()
+  const createMaterial = useCreateMaterial()
 
   const usage = usageQuery.data ?? NO_USAGE
   const catalog = catalogQuery.data ?? NO_MATERIALS
@@ -40,6 +48,13 @@ export function MaterialUsageCard() {
   function retry() {
     void usageQuery.refetch()
     void catalogQuery.refetch()
+  }
+
+  function addToCatalog(label: string) {
+    createMaterial.mutate(label, {
+      onSuccess: () => toast.success(`« ${label} » ajouté au catalogue.`),
+      onError: (error) => toast.error(errorMessage(error)),
+    })
   }
 
   let body: ReactNode
@@ -80,15 +95,25 @@ export function MaterialUsageCard() {
     body = (
       <div className="flex flex-col gap-4">
         {freeCount > 0 ? (
-          <p className="rounded-lg bg-warning-soft p-3 text-sm text-warning">
-            {formatNumber(freeCount)} {freeCount > 1 ? "noms" : "nom"} hors catalogue. Ajoutez-les au catalogue pour les
-            proposer aux agents.
-          </p>
+          <div className="flex items-start gap-2.5 rounded-xl bg-warning/10 p-3 text-sm text-warning">
+            <TriangleExclamationPoint className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <p>
+              {formatNumber(freeCount)} {freeCount > 1 ? "noms" : "nom"} hors catalogue.{" "}
+              {freeCount > 1 ? "Ajoutez-les" : "Ajoutez-le"} au catalogue pour les proposer aux agents.
+            </p>
+          </div>
         ) : null}
 
         <ul className="flex flex-col gap-4">
           {top.map((entry) => (
-            <UsageRow key={entry.key} entry={entry} maxUses={maxUses} />
+            <UsageRow
+              key={entry.key}
+              entry={entry}
+              maxUses={maxUses}
+              adding={createMaterial.isPending && createMaterial.variables === entry.label}
+              disabled={createMaterial.isPending}
+              onAddToCatalog={() => addToCatalog(entry.label)}
+            />
           ))}
         </ul>
 
@@ -106,7 +131,19 @@ export function MaterialUsageCard() {
   )
 }
 
-function UsageRow({ entry, maxUses }: { entry: MaterialUsageEntry; maxUses: number }) {
+function UsageRow({
+  entry,
+  maxUses,
+  adding,
+  disabled,
+  onAddToCatalog,
+}: {
+  entry: MaterialUsageEntry
+  maxUses: number
+  adding: boolean
+  disabled: boolean
+  onAddToCatalog: () => void
+}) {
   return (
     <li className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3 text-sm">
@@ -120,16 +157,31 @@ function UsageRow({ entry, maxUses }: { entry: MaterialUsageEntry; maxUses: numb
             </span>
           )}
         </div>
-        <span className="shrink-0 tabular-nums text-muted-foreground">{formatNumber(entry.uses)}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          {entry.inCatalog ? null : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-foreground [@media(pointer:coarse)]:h-11"
+              disabled={disabled}
+              onClick={onAddToCatalog}
+            >
+              {adding ? "Ajout…" : "+ Ajouter"}
+              <span className="sr-only"> {entry.label} au catalogue</span>
+            </Button>
+          )}
+          <span className="w-8 text-right tabular-nums text-muted-foreground">{formatNumber(entry.uses)}</span>
+        </div>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
         <div
-          className={cn("h-full rounded-full", entry.inCatalog ? "bg-primary/70" : "bg-warning")}
+          className={cn("h-full rounded-full", entry.inCatalog ? "bg-foreground/70" : "bg-warning")}
           style={{ width: `${(entry.uses / maxUses) * 100}%` }}
         />
       </div>
       {entry.spellings > 1 ? (
-        <span className="text-xs text-muted-foreground">{formatNumber(entry.spellings)} graphies regroupées</span>
+        <span className="text-xs text-muted-foreground">{formatNumber(entry.spellings)} orthographes regroupées</span>
       ) : null}
     </li>
   )

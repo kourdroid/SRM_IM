@@ -9,7 +9,7 @@ const DASHBOARD_VERSION = "0.1.0"
 export function AboutCard() {
   return (
     <SectionCard title="À propos">
-      <dl className="flex flex-col gap-3 text-sm">
+      <dl className="flex flex-col text-sm">
         <SettingsRow label="Application">Intervx Supervision</SettingsRow>
         <SettingsRow label="Type">Tableau de bord web</SettingsRow>
         <SettingsRow label="Version">{DASHBOARD_VERSION}</SettingsRow>

@@ -18,7 +18,7 @@ export function AccountCard() {
 
   return (
     <SectionCard title="Mon compte" description="Vos informations de connexion au tableau de bord.">
-      <dl className="flex flex-col gap-3 text-sm">
+      <dl className="flex flex-col text-sm">
         <SettingsRow label="Nom">{user.name}</SettingsRow>
         <SettingsRow label="Rôle">{ROLE_LABELS[user.role]}</SettingsRow>
         <SettingsRow label="E-mail">{session?.user.email ?? "—"}</SettingsRow>

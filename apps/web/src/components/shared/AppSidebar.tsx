@@ -23,7 +23,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-soft">
         <BrandMark showWordmark={false} />
         <div className="min-w-0">
-          <p className="text-sm font-semibold leading-tight">Intervx · ONEE</p>
+          <p className="text-sm font-semibold leading-tight">Intervx · SRM-CS</p>
           <p className="truncate text-xs text-muted-foreground">Province Sidi Bennour</p>
         </div>
       </div>

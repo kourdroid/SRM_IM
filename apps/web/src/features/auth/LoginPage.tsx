@@ -51,7 +51,7 @@ export function LoginPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-xl">Connexion</CardTitle>
-            <CardDescription>Supervision ONEE · Province Sidi Bennour</CardDescription>
+            <CardDescription>Supervision SRM-CS · Province Sidi Bennour</CardDescription>
           </CardHeader>
 
           <CardContent>

@@ -1,4 +1,4 @@
-import { PanelRight } from "lucide-react"
+import { Maximize2, Minimize2, PanelRight } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router"
 
@@ -26,19 +26,20 @@ const NO_INCIDENTS: Incident[] = []
 const NO_DEPARTS: NetworkDepart[] = []
 const RECENT_LIMIT = 20
 const NETWORK_STORAGE_KEY = "intervx.map.network"
+const MAP_ONLY_STORAGE_KEY = "intervx.map.mapOnly"
 
-/** Remembers whether the network layer was left on; storage can be blocked, so failures fall back to off. */
-function readNetworkPreference(): boolean {
+/** Remembers an on/off map preference; storage can be blocked, so failures fall back to off. */
+function readPreference(key: string): boolean {
   try {
-    return window.localStorage.getItem(NETWORK_STORAGE_KEY) === "1"
+    return window.localStorage.getItem(key) === "1"
   } catch {
     return false
   }
 }
 
-function saveNetworkPreference(visible: boolean) {
+function savePreference(key: string, on: boolean) {
   try {
-    window.localStorage.setItem(NETWORK_STORAGE_KEY, visible ? "1" : "0")
+    window.localStorage.setItem(key, on ? "1" : "0")
   } catch {
     // Storage unavailable: the choice simply lasts for this visit.
   }
@@ -69,7 +70,18 @@ export function MapPage() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const mapRef = useRef<IncidentMapHandle>(null)
 
-  const [networkVisible, setNetworkVisible] = useState(readNetworkPreference)
+  // "Carte seule" hides the filters, the day replay and the detail column; the map keeps working.
+  const [mapOnly, setMapOnly] = useState(() => readPreference(MAP_ONLY_STORAGE_KEY))
+  const toggleMapOnly = useCallback(() => {
+    setMapOnly((current) => {
+      savePreference(MAP_ONLY_STORAGE_KEY, !current)
+      return !current
+    })
+  }, [])
+  // With the detail column hidden, a selected incident opens in the Sheet, as on narrow screens.
+  const showSideColumn = isWide && !mapOnly
+
+  const [networkVisible, setNetworkVisible] = useState(() => readPreference(NETWORK_STORAGE_KEY))
   const [highlightedDepartId, setHighlightedDepartId] = useState<string | null>(null)
   const networkQuery = useNetwork(networkVisible)
   const networkData = networkQuery.data
@@ -92,7 +104,7 @@ export function MapPage() {
 
   const handleNetworkVisibleChange = useCallback((visible: boolean) => {
     setNetworkVisible(visible)
-    saveNetworkPreference(visible)
+    savePreference(NETWORK_STORAGE_KEY, visible)
     if (!visible) setHighlightedDepartId(null)
   }, [])
 
@@ -117,24 +129,24 @@ export function MapPage() {
   const handleMapSelect = useCallback(
     (id: string) => {
       setSelectedId(id)
-      if (!isWide) setSheetOpen(true)
+      if (!showSideColumn) setSheetOpen(true)
     },
-    [isWide],
+    [showSideColumn],
   )
 
   const handleListSelect = useCallback(
     (id: string) => {
       setSelectedId(id)
       mapRef.current?.flyToIncident(id)
-      if (!isWide) setSheetOpen(false)
+      if (!showSideColumn) setSheetOpen(false)
     },
-    [isWide],
+    [showSideColumn],
   )
 
   const handleClear = useCallback(() => {
     setSelectedId(null)
-    if (!isWide) setSheetOpen(false)
-  }, [isWide])
+    if (!showSideColumn) setSheetOpen(false)
+  }, [showSideColumn])
 
   const detail = (
     <IncidentDetailPanel
@@ -161,15 +173,21 @@ export function MapPage() {
             {`${plural(positioned.length, "position", "positions")} sur ${plural(incidents.length, "incident", "incidents")}`}
           </p>
         </div>
-        {!isWide ? (
-          <Button variant="secondary" onClick={() => setSheetOpen(true)}>
-            <PanelRight aria-hidden="true" />
-            Détail et liste
+        <div className="flex flex-wrap gap-2">
+          {!showSideColumn ? (
+            <Button variant="secondary" onClick={() => setSheetOpen(true)}>
+              <PanelRight aria-hidden="true" />
+              Détail et liste
+            </Button>
+          ) : null}
+          <Button variant="secondary" onClick={toggleMapOnly} aria-pressed={mapOnly}>
+            {mapOnly ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+            {mapOnly ? "Afficher les panneaux" : "Carte seule"}
           </Button>
-        ) : null}
+        </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className={cn("grid min-h-0 flex-1 gap-4", showSideColumn && "xl:grid-cols-[minmax(0,1fr)_380px]")}>
         <section aria-label="Carte des incidents" className="relative min-h-[420px] overflow-hidden rounded-xl bg-card shadow-soft">
           <IncidentMap
             ref={mapRef}
@@ -185,6 +203,7 @@ export function MapPage() {
             highlightedDepartId={highlightedDepartId}
           />
 
+          {mapOnly ? null : (<>
           <div className="absolute top-3 left-3 z-10 flex max-w-[calc(100%_-_4.5rem)] flex-col items-start gap-2">
             <MapModeToggle mode={mode} onModeChange={setMode} />
             <MapFilterPanel
@@ -209,6 +228,7 @@ export function MapPage() {
           <div className="absolute inset-x-3 bottom-9 z-10 sm:right-auto sm:w-[28rem]">
             <DayStrip buckets={buckets} activeKey={activeDay} onSelectDay={setDayKey} />
           </div>
+          </>)}
 
           {incidentsQuery.isPending || loadError || (!incidentsQuery.isPending && positioned.length === 0) ? (
             <p
@@ -223,14 +243,14 @@ export function MapPage() {
           ) : null}
         </section>
 
-        {isWide ? (
+        {showSideColumn ? (
           <aside aria-label="Détail de l'incident" className="min-h-0 overflow-hidden rounded-xl bg-card shadow-soft">
             {detail}
           </aside>
         ) : null}
       </div>
 
-      <Sheet open={sheetOpen && !isWide} onOpenChange={setSheetOpen}>
+      <Sheet open={sheetOpen && !showSideColumn} onOpenChange={setSheetOpen}>
         <SheetContent
           side={isPhone ? "bottom" : "right"}
           className={cn("gap-0 border-0 bg-card p-0 shadow-soft-lg", isPhone && "max-h-[85svh] rounded-t-2xl")}
